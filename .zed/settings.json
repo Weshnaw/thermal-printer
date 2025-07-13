@@ -1,0 +1,27 @@
+// Folder-specific settings
+//
+// For a full list of overridable settings, and general information on folder-specific settings,
+// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
+{
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "cargo": {
+          "allTargets": false,
+          "target": "xtensa-esp32-none-elf",
+          "extraEnv": {
+            "RUSTUP_TOOLCHAIN": "esp"
+          }
+        },
+        "server": {
+          "RUSTUP_TOOLCHAIN": "stable"
+        },
+        "check": {
+          "extraEnv": {
+            "RUSTUP_TOOLCHAIN": "esp"
+          }
+        }
+      }
+    }
+  }
+}
