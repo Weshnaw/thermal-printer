@@ -1,19 +1,48 @@
+use defmt::info;
 use embassy_net::Stack;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
 use embassy_time::Duration;
 use esp_alloc as _;
-use picoserve::{response::File, routing, AppBuilder, AppRouter, Router};
+use picoserve::{
+    extract::State,
+    response::{File, IntoResponse},
+    routing, AppRouter, AppWithStateBuilder, Router,
+};
 
 pub struct Application;
 
-impl AppBuilder for Application {
-    type PathRouter = impl routing::PathRouter;
+#[derive(Clone)]
+pub struct AppState {
+    pub sender: Sender<'static, CriticalSectionRawMutex, heapless::String<MAX_BODY_LEN>, 8>,
+}
 
-    fn build_app(self) -> picoserve::Router<Self::PathRouter> {
+static INDEX_PAGE: &str = include_str!("index.html");
+impl AppWithStateBuilder for Application {
+    type PathRouter = impl routing::PathRouter<AppState>;
+    type State = AppState;
+
+    fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
         picoserve::Router::new().route(
             "/",
-            routing::get_service(File::html(include_str!("index.html"))),
+            routing::get_service(File::html(INDEX_PAGE)).post(post_handler),
         )
     }
+}
+/// Max body size we accept
+pub const MAX_BODY_LEN: usize = 512;
+
+#[derive(serde::Deserialize)]
+struct SubmitData {
+    message: heapless::String<MAX_BODY_LEN>,
+}
+
+async fn post_handler(
+    State(state): picoserve::extract::State<AppState>,
+    data: picoserve::extract::Form<SubmitData>,
+) -> impl IntoResponse {
+    info!("Received message: {}", data.message);
+
+    state.sender.send(data.message.clone()).await;
 }
 
 pub const WEB_TASK_POOL_SIZE: usize = 2;
@@ -24,13 +53,14 @@ pub async fn web_task(
     stack: Stack<'static>,
     router: &'static AppRouter<Application>,
     config: &'static picoserve::Config<Duration>,
+    state: AppState,
 ) -> ! {
     let port = 80;
     let mut tcp_rx_buffer = [0; 1024];
     let mut tcp_tx_buffer = [0; 1024];
     let mut http_buffer = [0; 2048];
 
-    picoserve::listen_and_serve(
+    picoserve::listen_and_serve_with_state(
         id,
         router,
         config,
@@ -39,12 +69,13 @@ pub async fn web_task(
         &mut tcp_rx_buffer,
         &mut tcp_tx_buffer,
         &mut http_buffer,
+        &state,
     )
     .await
 }
 
 pub struct WebApp {
-    pub router: &'static Router<<Application as AppBuilder>::PathRouter>,
+    pub router: &'static Router<<Application as AppWithStateBuilder>::PathRouter, AppState>,
     pub config: &'static picoserve::Config<Duration>,
 }
 

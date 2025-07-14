@@ -3,8 +3,6 @@ use embassy_executor::Spawner;
 use embassy_net::{DhcpConfig, Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
-use esp_println as _;
-use esp_println::println;
 use esp_wifi::wifi::{self, WifiController, WifiDevice, WifiEvent, WifiState};
 use esp_wifi::EspWifiController;
 

@@ -384,6 +384,7 @@ checksum = "cef1a8a1ea892f9b656de0295532ac5d8067e9830d49ec75076291fd6066b136"
 dependencies = [
  "cfg-if",
  "critical-section",
+ "defmt 1.0.1",
  "embedded-io-async",
  "futures-sink",
  "futures-util",
@@ -1180,6 +1181,7 @@ checksum = "33c13ee221d37df77538b033b831099235067c6a3fdcd2b80ef46c3d5b96e3b2"
 dependencies = [
  "const-sha1",
  "data-encoding",
+ "defmt 0.3.100",
  "embassy-net",
  "embassy-time",
  "embedded-io-async",
@@ -1390,6 +1392,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b81787e655bd59cecadc91f7b6b8651330b2be6c33246039a65e5cd6f4e0828"
 dependencies = [
+ "defmt 0.3.100",
  "heapless",
  "ryu",
  "serde",
@@ -1673,6 +1676,7 @@ dependencies = [
  "defmt 1.0.1",
  "embassy-executor",
  "embassy-net",
+ "embassy-sync 0.7.0",
  "embassy-time",
  "embedded-io",
  "embedded-io-async",
@@ -1683,7 +1687,9 @@ dependencies = [
  "esp-hal-embassy",
  "esp-println",
  "esp-wifi",
+ "heapless",
  "picoserve",
+ "serde",
  "static_cell",
 ]
 
