@@ -46,15 +46,7 @@ async fn main(spawner: Spawner) {
     info!("Embassy initialized...");
 
     let timer1 = TimerGroup::new(peripherals.TIMG0);
-    let mut rng = Rng::new(peripherals.RNG);
-
-    // Creating a UUID for the device; maybe this should actually be a more consistent value
-    // maybe something like on_startup check flash storage for existing uuid if not exists create new one
-    let mut rng_buffer = [0u8; 16];
-    rng.read(&mut rng_buffer);
-
-    let uuid = uuid::Builder::from_random_bytes(rng_buffer).into_uuid();
-    info!("UUID: {:#x}", uuid.as_u128());
+    let rng = Rng::new(peripherals.RNG);
 
     let (stack, mac_address) = wifi::start_wifi(
         timer1.timer0,
