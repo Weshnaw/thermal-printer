@@ -1,9 +1,8 @@
 #![no_std]
 #![feature(impl_trait_in_assoc_type)]
 
+pub mod net;
 pub mod printer;
-pub mod web;
-pub mod wifi;
 
 #[macro_export]
 macro_rules! mk_static {

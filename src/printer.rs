@@ -1,3 +1,5 @@
+// TODO; make better
+
 use defmt::info;
 
 pub async fn initialize_printer<T: embedded_io::Write>(uart: &mut T) {

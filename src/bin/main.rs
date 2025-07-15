@@ -1,10 +1,14 @@
 #![no_std]
 #![no_main]
 
+use core::marker::PhantomData;
+
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_net::Stack;
 use embassy_sync::channel::Channel;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
+use embassy_time::Duration;
 use esp_hal::clock::CpuClock;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
@@ -19,13 +23,19 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 extern crate alloc;
 
-use esp_wifi::EspWifiController;
-use webserver_html as lib;
-use webserver_html::web::{AppState, MAX_BODY_LEN};
+use picoserve::{AppRouter, AppWithStateBuilder as _};
+use webserver_html::net::web::{web_task_runner, AppState};
+use webserver_html::{
+    net::{
+        web::{Application, MAX_BODY_LEN},
+        wifi,
+    },
+    printer,
+};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-pub static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, heapless::String<MAX_BODY_LEN>, 8> =
+static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, heapless::String<MAX_BODY_LEN>, 8> =
     Channel::new();
 
 #[esp_hal_embassy::main]
@@ -43,32 +53,62 @@ async fn main(spawner: Spawner) {
     info!("Embassy initialized!");
 
     let timer1 = TimerGroup::new(peripherals.TIMG0);
-
     let rng = Rng::new(peripherals.RNG);
-    let esp_wifi_ctrl = &*lib::mk_static!(
-        EspWifiController<'static>,
-        esp_wifi::init(timer1.timer0, rng.clone(), peripherals.RADIO_CLK,).unwrap()
+
+    let stack = wifi::start_wifi(
+        timer1.timer0,
+        peripherals.RADIO_CLK,
+        peripherals.WIFI,
+        rng,
+        &spawner,
+    )
+    .await;
+
+    start_web_server(stack, &spawner, PRINT_CHANNEL.sender()).await;
+
+    let uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
+    start_printer_service(uart, &spawner).await;
+}
+
+const WEB_TASK_POOL_SIZE: usize = 2;
+type PrinterSender = Sender<'static, CriticalSectionRawMutex, heapless::String<MAX_BODY_LEN>, 8>;
+
+async fn start_web_server(stack: Stack<'static>, spawner: &Spawner, sender: PrinterSender) {
+    let router = picoserve::make_static!(
+        AppRouter<Application<PrinterSender>>,
+        Application(PhantomData).build_app()
+    );
+    let config = picoserve::make_static!(
+        picoserve::Config<Duration>,
+        picoserve::Config::new(picoserve::Timeouts {
+            start_read_request: Some(Duration::from_secs(5)),
+            read_request: Some(Duration::from_secs(1)),
+            write: Some(Duration::from_secs(1)),
+            persistent_start_read_request: Some(Duration::from_secs(5))
+        })
+        .keep_connection_alive()
     );
 
-    let stack = lib::wifi::start_wifi(esp_wifi_ctrl, peripherals.WIFI, rng, &spawner).await;
-
-    let web_app = lib::web::WebApp::default();
-    for id in 0..lib::web::WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(lib::web::web_task(
-            id,
-            stack,
-            web_app.router,
-            web_app.config,
-            AppState {
-                sender: PRINT_CHANNEL.sender(),
-            },
-        ));
+    for id in 0..WEB_TASK_POOL_SIZE {
+        spawner.must_spawn(web_task(id, stack, router, config, AppState { sender }));
     }
     info!("Web server started...");
-    let mut uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
+}
 
-    lib::printer::initialize_printer(&mut uart).await;
-    lib::printer::print_wrapped_upside_down(
+#[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
+async fn web_task(
+    id: usize,
+    stack: Stack<'static>,
+    router: &'static AppRouter<Application<PrinterSender>>,
+    config: &'static picoserve::Config<Duration>,
+    state: AppState<PrinterSender>,
+) {
+    web_task_runner(id, stack, router, config, state).await;
+}
+
+async fn start_printer_service(mut uart: Uart<'static, Blocking>, spawner: &Spawner) {
+    printer::initialize_printer(&mut uart).await;
+    printer::print_wrapped_upside_down(
         &mut uart,
         "Test Print, extra lines 12345678901234567890",
         5,
@@ -79,10 +119,10 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-pub async fn print_task(mut uart: Uart<'static, Blocking>) {
+async fn print_task(mut uart: Uart<'static, Blocking>) {
     let rx = PRINT_CHANNEL.receiver();
     loop {
         let data = rx.receive().await;
-        lib::printer::print_wrapped_upside_down(&mut uart, &data, 10);
+        printer::print_wrapped_upside_down(&mut uart, &data, 10);
     }
 }
