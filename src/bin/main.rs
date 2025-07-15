@@ -1,7 +1,10 @@
 #![no_std]
 #![no_main]
-
-use core::marker::PhantomData;
+#![deny(
+    clippy::mem_forget,
+    reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
+    holding buffers for the duration of a data transfer."
+)]
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -14,30 +17,23 @@ use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::Uart;
 use esp_hal::Blocking;
-use esp_println as _;
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-
 use picoserve::{AppRouter, AppWithStateBuilder as _};
 use webserver_html::net::web::{web_task_runner, AppState, MessageData};
+use webserver_html::printer::ThermalPrinter;
 use webserver_html::{
     net::{web::Application, wifi},
     printer,
 };
 
-esp_bootloader_esp_idf::esp_app_desc!();
+use {esp_backtrace as _, esp_println as _};
 
 // TODO reconsider static channels
 type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, 8>;
 static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, MessageData, 8> = Channel::new();
 
+esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
-    // generator version: 0.3.1
-
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
@@ -46,7 +42,7 @@ async fn main(spawner: Spawner) {
     let timer0 = TimerGroup::new(peripherals.TIMG1);
     esp_hal_embassy::init(timer0.timer0);
 
-    info!("Embassy initialized!");
+    info!("Embassy initialized...");
 
     let timer1 = TimerGroup::new(peripherals.TIMG0);
     let rng = Rng::new(peripherals.RNG);
@@ -66,12 +62,13 @@ async fn main(spawner: Spawner) {
     start_printer_service(uart, &spawner).await;
 }
 
+/* -------------- WEB SERVER TASK -------------- */
 const WEB_TASK_POOL_SIZE: usize = 2;
 
 async fn start_web_server(stack: Stack<'static>, spawner: &Spawner, sender: PrinterSender) {
     let router = picoserve::make_static!(
         AppRouter<Application<PrinterSender>>,
-        Application(PhantomData).build_app()
+        Application::new().build_app()
     );
     let config = picoserve::make_static!(
         picoserve::Config<Duration>,
@@ -87,7 +84,7 @@ async fn start_web_server(stack: Stack<'static>, spawner: &Spawner, sender: Prin
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, stack, router, config, AppState { sender }));
     }
-    info!("Web server started...");
+    info!("Web server initialized...");
 }
 
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
@@ -101,23 +98,23 @@ async fn web_task(
     web_task_runner(id, stack, router, config, state).await;
 }
 
-async fn start_printer_service(mut uart: Uart<'static, Blocking>, spawner: &Spawner) {
-    printer::initialize_printer(&mut uart).await;
-    printer::print_wrapped_upside_down(
-        &mut uart,
-        "Test Print, extra lines 12345678901234567890",
-        5,
-    );
+/* -------------- THERMAL PRINTER TASK -------------- */
+async fn start_printer_service(uart: Uart<'static, Blocking>, spawner: &Spawner) {
+    let mut printer = printer::ThermalPrinter::new(uart).await;
+    printer.print("Test Print, extra lines 12345678901234567890");
 
-    spawner.must_spawn(print_task(uart));
+    spawner.must_spawn(print_task(printer));
     info!("Printer initialized...")
 }
 
 #[embassy_executor::task]
-async fn print_task(mut uart: Uart<'static, Blocking>) {
+async fn print_task(mut printer: ThermalPrinter<Uart<'static, Blocking>>) {
     let rx = PRINT_CHANNEL.receiver();
     loop {
         let data = rx.receive().await;
-        printer::print_wrapped_upside_down(&mut uart, &data, 10);
+        printer.print(&data);
     }
 }
+
+/* -------------- MQTT SERVICE TASK -------------- */
+// TODO

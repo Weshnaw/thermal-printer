@@ -61,6 +61,12 @@ pub struct AppState<S: DataSender<MessageData>> {
 
 pub struct Application<S>(pub PhantomData<S>);
 
+impl<S> Application<S> {
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
 static INDEX_PAGE: &str = include_str!("index.html");
 impl<S: DataSender<MessageData> + Clone> AppWithStateBuilder for Application<S> {
     type PathRouter = impl routing::PathRouter<AppState<S>>;
