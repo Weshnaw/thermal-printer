@@ -9,7 +9,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::Stack;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, Receiver};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
 use embassy_time::Duration;
 use esp_hal::clock::CpuClock;
@@ -29,6 +29,7 @@ use {esp_backtrace as _, esp_println as _};
 
 // TODO reconsider static channels
 type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, 8>;
+type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, 8>;
 static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, MessageData, 8> = Channel::new();
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -45,9 +46,17 @@ async fn main(spawner: Spawner) {
     info!("Embassy initialized...");
 
     let timer1 = TimerGroup::new(peripherals.TIMG0);
-    let rng = Rng::new(peripherals.RNG);
+    let mut rng = Rng::new(peripherals.RNG);
 
-    let stack = wifi::start_wifi(
+    // Creating a UUID for the device; maybe this should actually be a more consistent value
+    // maybe something like on_startup check flash storage for existing uuid if not exists create new one
+    let mut rng_buffer = [0u8; 16];
+    rng.read(&mut rng_buffer);
+
+    let uuid = uuid::Builder::from_random_bytes(rng_buffer).into_uuid();
+    info!("UUID: {:#x}", uuid.as_u128());
+
+    let (stack, mac_address) = wifi::start_wifi(
         timer1.timer0,
         peripherals.RADIO_CLK,
         peripherals.WIFI,
@@ -56,10 +65,12 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
+    info!("MAC Address: {:#x}", mac_address);
+
     start_web_server(stack, &spawner, PRINT_CHANNEL.sender()).await;
 
     let uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
-    start_printer_service(uart, &spawner).await;
+    start_printer_service(uart, &spawner, PRINT_CHANNEL.receiver()).await;
 }
 
 /* -------------- WEB SERVER TASK -------------- */
@@ -99,17 +110,20 @@ async fn web_task(
 }
 
 /* -------------- THERMAL PRINTER TASK -------------- */
-async fn start_printer_service(uart: Uart<'static, Blocking>, spawner: &Spawner) {
+async fn start_printer_service(
+    uart: Uart<'static, Blocking>,
+    spawner: &Spawner,
+    rx: PrinterReceiver,
+) {
     let mut printer = printer::ThermalPrinter::new(uart).await;
     printer.print("Test Print, extra lines 12345678901234567890");
 
-    spawner.must_spawn(print_task(printer));
+    spawner.must_spawn(print_task(printer, rx));
     info!("Printer initialized...")
 }
 
 #[embassy_executor::task]
-async fn print_task(mut printer: ThermalPrinter<Uart<'static, Blocking>>) {
-    let rx = PRINT_CHANNEL.receiver();
+async fn print_task(mut printer: ThermalPrinter<Uart<'static, Blocking>>, rx: PrinterReceiver) {
     loop {
         let data = rx.receive().await;
         printer.print(&data);

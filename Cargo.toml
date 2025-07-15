@@ -54,6 +54,7 @@ serde = { version = "1.0", default-features = false, features = [
     "rc",
 ] }
 embassy-sync = { version = "0.7", features = ["defmt"] }
+uuid = { version = "1.17", default-features = false, features = ["serde"] }
 
 
 [profile.dev]

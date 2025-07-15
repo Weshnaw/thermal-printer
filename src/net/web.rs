@@ -82,7 +82,7 @@ impl<S: DataSender<MessageData> + Clone> AppWithStateBuilder for Application<S> 
 
 #[derive(serde::Deserialize)]
 struct SubmitData {
-    message: Arc<str>,
+    message: MessageData,
 }
 
 async fn post_handler<S: DataSender<MessageData> + Clone>(

@@ -18,7 +18,7 @@ pub async fn start_wifi(
     wifi: esp_hal::peripherals::WIFI<'static>,
     mut rng: Rng,
     spawner: &Spawner,
-) -> Stack<'static> {
+) -> (Stack<'static>, [u8; 6]) {
     let esp_wifi_ctrl = &*crate::mk_static!(
         EspWifiController<'static>,
         esp_wifi::init(timer, rng.clone(), radio_clock).unwrap()
@@ -32,6 +32,7 @@ pub async fn start_wifi(
     let net_config = embassy_net::Config::dhcpv4(dhcp_config);
 
     // Init network stack
+    let mac_address = wifi_interface.mac_address();
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         net_config,
@@ -44,7 +45,7 @@ pub async fn start_wifi(
 
     wait_for_connection(stack).await;
 
-    stack
+    (stack, mac_address)
 }
 
 #[embassy_executor::task]
