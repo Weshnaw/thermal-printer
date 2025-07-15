@@ -21,22 +21,18 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-extern crate alloc;
-
 use picoserve::{AppRouter, AppWithStateBuilder as _};
-use webserver_html::net::web::{web_task_runner, AppState};
+use webserver_html::net::web::{web_task_runner, AppState, MessageData};
 use webserver_html::{
-    net::{
-        web::{Application, MAX_BODY_LEN},
-        wifi,
-    },
+    net::{web::Application, wifi},
     printer,
 };
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, heapless::String<MAX_BODY_LEN>, 8> =
-    Channel::new();
+// TODO reconsider static channels
+type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, 8>;
+static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, MessageData, 8> = Channel::new();
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -71,7 +67,6 @@ async fn main(spawner: Spawner) {
 }
 
 const WEB_TASK_POOL_SIZE: usize = 2;
-type PrinterSender = Sender<'static, CriticalSectionRawMutex, heapless::String<MAX_BODY_LEN>, 8>;
 
 async fn start_web_server(stack: Stack<'static>, spawner: &Spawner, sender: PrinterSender) {
     let router = picoserve::make_static!(

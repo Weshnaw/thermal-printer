@@ -1,19 +1,20 @@
 use core::marker::PhantomData;
 
+use alloc::sync::Arc;
 use defmt::info;
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::RawMutex, channel::Sender};
 use embassy_time::Duration;
 use esp_alloc as _;
-use heapless::String;
 use picoserve::{
     extract::State,
     response::{File, IntoResponse},
     routing, AppRouter, AppWithStateBuilder,
 };
 
-type MessageData = String<MAX_BODY_LEN>;
+pub type MessageData = Arc<str>;
 
+// TODO; move to data module
 pub trait DataSender<T> {
     fn send(&self, message: T) -> impl core::future::Future<Output = ()>;
 }
@@ -26,8 +27,6 @@ where
         self.send(message).await
     }
 }
-
-pub const MAX_BODY_LEN: usize = 512;
 
 pub async fn web_task_runner<S: DataSender<MessageData> + Clone>(
     id: usize,
@@ -77,14 +76,14 @@ impl<S: DataSender<MessageData> + Clone> AppWithStateBuilder for Application<S> 
 
 #[derive(serde::Deserialize)]
 struct SubmitData {
-    message: heapless::String<MAX_BODY_LEN>,
+    message: Arc<str>,
 }
 
 async fn post_handler<S: DataSender<MessageData> + Clone>(
     State(state): picoserve::extract::State<AppState<S>>,
     data: picoserve::extract::Form<SubmitData>,
 ) -> impl IntoResponse {
-    info!("Received message: {}", data.message);
+    info!("Received message: {}", data.message.as_ref());
 
     state.sender.send(data.message.clone()).await;
 }
