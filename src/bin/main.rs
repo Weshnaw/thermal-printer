@@ -18,6 +18,9 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::Uart;
 use esp_hal::Blocking;
 use picoserve::{AppRouter, AppWithStateBuilder as _};
+use webserver_html::alloc::format;
+use webserver_html::alloc::string::String;
+use webserver_html::net::mqtt::mqtt_runner;
 use webserver_html::net::web::{web_task_runner, AppState, MessageData};
 use webserver_html::printer::ThermalPrinter;
 use webserver_html::{
@@ -61,10 +64,21 @@ async fn main(spawner: Spawner) {
 
     static CHANNEL: PrinterChannel = Channel::new();
 
-    start_web_server(stack, &spawner, CHANNEL.sender()).await;
+    // start_web_server(stack, &spawner, CHANNEL.sender()).await;
 
     let uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
     start_printer_service(uart, &spawner, CHANNEL.receiver()).await;
+
+    let client_id = format!(
+        "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+        mac_address[0],
+        mac_address[1],
+        mac_address[2],
+        mac_address[3],
+        mac_address[4],
+        mac_address[5]
+    );
+    start_mqtt_service(&spawner, stack, rng, client_id).await;
 }
 
 /* -------------- WEB SERVER TASK -------------- */
@@ -125,4 +139,12 @@ async fn print_task(mut printer: ThermalPrinter<Uart<'static, Blocking>>, rx: Pr
 }
 
 /* -------------- MQTT SERVICE TASK -------------- */
-// TODO
+async fn start_mqtt_service(spawner: &Spawner, stack: Stack<'static>, rng: Rng, client_id: String) {
+    spawner.must_spawn(mqtt_task(stack, rng, client_id));
+    info!("MQTT initialized...")
+}
+
+#[embassy_executor::task]
+async fn mqtt_task(stack: Stack<'static>, rng: Rng, client_id: String) {
+    mqtt_runner(stack, rng, &client_id).await;
+}

@@ -19,6 +19,7 @@ embassy-net = { version = "0.7", features = [
     "defmt",
     "dhcpv4",
     "medium-ethernet",
+    "dns",
     "tcp",
     "udp",
 ] }
@@ -54,6 +55,7 @@ serde = { version = "1.0", default-features = false, features = [
     "rc",
 ] }
 embassy-sync = { version = "0.7", features = ["defmt"] }
+rust-mqtt = { version = "0.3.0", default-features = false, features = ["no_std"] }
 
 [profile.dev]
 # Rust debug is too slow.

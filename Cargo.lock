@@ -1354,6 +1354,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-mqtt"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f71160765f368fd9a84e0955e2ddb6d64ac9018fee1c5323354d6d08c816b40"
+dependencies = [
+ "defmt 0.3.100",
+ "embedded-io",
+ "embedded-io-async",
+ "heapless",
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1689,6 +1702,7 @@ dependencies = [
  "esp-wifi",
  "heapless",
  "picoserve",
+ "rust-mqtt",
  "serde",
  "static_cell",
 ]
