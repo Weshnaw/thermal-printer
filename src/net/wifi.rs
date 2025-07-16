@@ -9,8 +9,8 @@ use esp_wifi::{EspWifiController, EspWifiTimerSource};
 
 use crate::mk_static;
 
-const SSID: &str = env!("SSID");
-const PASSWORD: &str = env!("PASSWORD");
+const SSID: &str = env!("WIFI_SSID");
+const PASSWORD: &str = env!("WIFI_PASSWORD");
 
 pub async fn start_wifi(
     timer: impl EspWifiTimerSource + 'static,
