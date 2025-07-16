@@ -1,14 +1,56 @@
+use alloc::sync::Arc;
 use defmt::{debug, info};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    channel::{Channel, Receiver, Sender},
+};
 
-// TODO; setup a configuration that lets this be changed dynamically via mqtt
-static MAX_CHARACTERS: usize = 10;
+type MessageData = Arc<str>;
+type PrinterChannel = Channel<CriticalSectionRawMutex, MessageData, 8>;
+type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, 8>;
+type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, 8>;
 
-pub struct ThermalPrinter<T: embedded_io::Write> {
-    serial_writer: T,
+static PRINTER_CHANNEL: PrinterChannel = Channel::new();
+static MAX_CHARACTERS_PER_LINE: usize = 10;
+
+pub async fn new<T: embedded_io::Write>(writer: T) -> (ThermalPrinterService<T>, ThermalPrinter) {
+    let mut printer = ThermalPrinterService::new(writer).await;
+    printer.print("Test Print, extra lines 12345678901234567890");
+
+    (printer, ThermalPrinter::new())
 }
 
-impl<T: embedded_io::Write> ThermalPrinter<T> {
-    pub async fn new(mut serial_writer: T) -> Self {
+#[derive(Clone)]
+pub struct ThermalPrinter {
+    printer_tx: PrinterSender,
+}
+
+impl ThermalPrinter {
+    pub fn new() -> Self {
+        let printer_tx = PRINTER_CHANNEL.sender();
+
+        ThermalPrinter { printer_tx }
+    }
+
+    pub async fn print(&self, buf: &str) {
+        self.printer_tx.send(buf.into()).await;
+    }
+}
+
+impl Default for ThermalPrinter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// TODO; setup a configuration that lets this be changed dynamically via mqtt
+pub struct ThermalPrinterService<T: embedded_io::Write> {
+    serial_writer: T,
+    printer_rx: PrinterReceiver,
+}
+
+impl<T: embedded_io::Write> ThermalPrinterService<T> {
+    async fn new(mut serial_writer: T) -> Self {
         serial_writer.write_all(&[0x1B, b'@']).unwrap(); // ESC @
         embassy_time::Timer::after_millis(50).await;
 
@@ -17,16 +59,21 @@ impl<T: embedded_io::Write> ThermalPrinter<T> {
             .unwrap(); // print density
         serial_writer.write_all(&[0x1B, b'{', 0x01]).unwrap(); // 180° rotation
 
-        Self { serial_writer }
+        let printer_rx = PRINTER_CHANNEL.receiver();
+
+        Self {
+            serial_writer,
+            printer_rx,
+        }
     }
 
-    pub fn print(&mut self, text: &str) {
+    fn print(&mut self, text: &str) {
         info!("Printing: {}", text);
 
-        let mut remaining = text.trim_end();
+        let mut remaining = text.trim_ascii_end();
         while !remaining.is_empty() {
             // Limit to MAX_CHARACTERS from the end
-            let take_len = core::cmp::min(MAX_CHARACTERS, remaining.len());
+            let take_len = core::cmp::min(MAX_CHARACTERS_PER_LINE, remaining.len());
             let start_idx = remaining.len() - take_len;
             let slice = &remaining[start_idx..];
 
@@ -61,6 +108,7 @@ impl<T: embedded_io::Write> ThermalPrinter<T> {
 
     fn print_line(&mut self, line: &str) {
         debug!("Printing line: {}", line);
+
         self.serial_writer.write_all(line.as_bytes()).unwrap();
         self.serial_writer.write_all(&[0x0A]).unwrap(); // LF
     }
@@ -69,4 +117,11 @@ impl<T: embedded_io::Write> ThermalPrinter<T> {
     //     uart.write_all(&[0x1D, b'B', if enable { 1 } else { 0 }])
     //         .unwrap();
     // }
+    //
+    pub async fn run(mut self) {
+        loop {
+            let data = self.printer_rx.receive().await;
+            self.print(&data);
+        }
+    }
 }

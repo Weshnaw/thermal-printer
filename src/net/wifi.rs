@@ -21,10 +21,10 @@ pub async fn start_wifi(
 ) -> (Stack<'static>, [u8; 6]) {
     let esp_wifi_ctrl = &*crate::mk_static!(
         EspWifiController<'static>,
-        esp_wifi::init(timer, rng.clone(), radio_clock).unwrap()
+        esp_wifi::init(timer, rng, radio_clock).unwrap()
     );
 
-    let (controller, interfaces) = esp_wifi::wifi::new(&esp_wifi_ctrl, wifi).unwrap();
+    let (controller, interfaces) = esp_wifi::wifi::new(esp_wifi_ctrl, wifi).unwrap();
     let wifi_interface = interfaces.sta;
     let net_seed = rng.random() as u64 | ((rng.random() as u64) << 32);
 
@@ -53,18 +53,16 @@ async fn connection_task(mut controller: WifiController<'static>) {
     info!("start connection task");
     debug!("Device capabilities: {:?}", controller.capabilities());
     loop {
-        match esp_wifi::wifi::wifi_state() {
-            WifiState::StaConnected => {
-                // wait until we're no longer connected
-                controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                Timer::after(Duration::from_millis(5000)).await
-            }
-            _ => {}
+        if wifi::wifi_state() == WifiState::StaConnected {
+            // wait until we're no longer connected
+            controller.wait_for_event(WifiEvent::StaDisconnected).await;
+            Timer::after(Duration::from_millis(5000)).await
         }
+
         if !matches!(controller.is_started(), Ok(true)) {
             let client_config = wifi::Configuration::Client(wifi::ClientConfiguration {
-                ssid: SSID.try_into().unwrap(),
-                password: PASSWORD.try_into().unwrap(),
+                ssid: SSID.into(),
+                password: PASSWORD.into(),
                 ..Default::default()
             });
             controller.set_configuration(&client_config).unwrap();

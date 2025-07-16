@@ -1,4 +1,4 @@
-use alloc::format;
+use alloc::{format, string::String};
 use defmt::{error, info};
 use embassy_net::{tcp::TcpSocket, IpAddress, Stack};
 use embassy_time::{Duration, Timer};
@@ -14,7 +14,27 @@ use rust_mqtt::{
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
 
-pub async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
+pub struct MQTTService {
+    stack: Stack<'static>,
+    rng: Rng,
+    client_id: String,
+}
+
+impl MQTTService {
+    pub fn new(stack: Stack<'static>, rng: Rng, client_id: String) -> Self {
+        MQTTService {
+            stack,
+            rng,
+            client_id,
+        }
+    }
+
+    pub async fn run(&self) {
+        mqtt_runner(self.stack, self.rng, &self.client_id).await;
+    }
+}
+
+async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
     info!("initializing mqtt client");
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 1024];
