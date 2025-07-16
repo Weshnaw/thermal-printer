@@ -8,20 +8,22 @@ name = "webserver-html"
 path = "./src/bin/main.rs"
 
 [dependencies]
+embassy-net = { version = "0.7", features = [
+    "defmt",
+    "dhcpv4",
+    "proto-ipv4",
+    "medium-ethernet",
+    "dns",
+    "tcp",
+    "udp",
+    "alloc",
+] }
 defmt = "1.0"
 esp-bootloader-esp-idf = "0.1"
 esp-hal = { version = "=1.0.0-beta.1", features = [
     "defmt",
     "esp32",
     "unstable",
-] }
-embassy-net = { version = "0.7", features = [
-    "defmt",
-    "dhcpv4",
-    "medium-ethernet",
-    "dns",
-    "tcp",
-    "udp",
 ] }
 embedded-io = { version = "0.6", features = ["defmt-03"] }
 embedded-io-async = { version = "0.6", features = ["defmt-03"] }
@@ -55,7 +57,7 @@ serde = { version = "1.0", default-features = false, features = [
     "rc",
 ] }
 embassy-sync = { version = "0.7", features = ["defmt"] }
-rust-mqtt = { version = "0.3.0", default-features = false, features = ["no_std"] }
+rust-mqtt = { version = "0.3", default-features = false, features = ["no_std"] }
 
 [profile.dev]
 # Rust debug is too slow.

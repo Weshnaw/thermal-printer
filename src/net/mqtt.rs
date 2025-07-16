@@ -16,8 +16,8 @@ const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
 
 pub async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
     info!("initializing mqtt client");
-    let mut rx_buffer = [0; 4096];
-    let mut tx_buffer = [0; 4096];
+    let mut rx_buffer = [0; 1024];
+    let mut tx_buffer = [0; 1024];
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(10)));
     let ip = IpAddress::v4(192, 168, 1, 33); // TODO; make configurable
@@ -85,7 +85,7 @@ pub async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
                 }
             },
         }
-        Timer::after(Duration::from_millis(3000)).await;
+        Timer::after(Duration::from_secs(5)).await;
     }
 }
 

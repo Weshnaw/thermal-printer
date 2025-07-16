@@ -64,8 +64,6 @@ async fn main(spawner: Spawner) {
 
     static CHANNEL: PrinterChannel = Channel::new();
 
-    // start_web_server(stack, &spawner, CHANNEL.sender()).await;
-
     let uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
     start_printer_service(uart, &spawner, CHANNEL.receiver()).await;
 
@@ -79,6 +77,7 @@ async fn main(spawner: Spawner) {
         mac_address[5]
     );
     start_mqtt_service(&spawner, stack, rng, client_id).await;
+    start_web_server(stack, &spawner, CHANNEL.sender()).await;
 }
 
 /* -------------- WEB SERVER TASK -------------- */
