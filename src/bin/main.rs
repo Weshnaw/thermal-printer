@@ -9,8 +9,8 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::Stack;
-use embassy_sync::channel::{Channel, Receiver};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Sender};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Duration;
 use esp_hal::clock::CpuClock;
 use esp_hal::rng::Rng;
@@ -27,10 +27,10 @@ use webserver_html::{
 
 use {esp_backtrace as _, esp_println as _};
 
-// TODO reconsider static channels
+// TODO move to separate file
+type PrinterChannel = Channel<CriticalSectionRawMutex, MessageData, 8>;
 type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, 8>;
 type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, 8>;
-static PRINT_CHANNEL: Channel<CriticalSectionRawMutex, MessageData, 8> = Channel::new();
 
 esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_hal_embassy::main]
@@ -59,10 +59,12 @@ async fn main(spawner: Spawner) {
 
     info!("MAC Address: {:#x}", mac_address);
 
-    start_web_server(stack, &spawner, PRINT_CHANNEL.sender()).await;
+    static CHANNEL: PrinterChannel = Channel::new();
+
+    start_web_server(stack, &spawner, CHANNEL.sender()).await;
 
     let uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
-    start_printer_service(uart, &spawner, PRINT_CHANNEL.receiver()).await;
+    start_printer_service(uart, &spawner, CHANNEL.receiver()).await;
 }
 
 /* -------------- WEB SERVER TASK -------------- */
