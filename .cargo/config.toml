@@ -3,8 +3,10 @@ runner = "espflash flash --monitor --chip esp32 --log-format defmt"
 
 [env]
 DEFMT_LOG = "info"
-SSID = "bfall"
-PASSWORD = "TODO"
+WIFI_SSID = "bfall"
+WIFI_PASSWORD = "TODO"
+MQTT_USER = "bfall"
+MQTT_PASSWORD = "TODO"
 
 [build]
 rustflags = ["-C", "link-arg=-nostartfiles"]
