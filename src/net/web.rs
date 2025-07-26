@@ -92,5 +92,5 @@ async fn post_handler(
 ) -> impl IntoResponse {
     info!("Received message: {}", data.message.as_ref());
 
-    state.printer.print(&data.message).await;
+    state.printer.print(data.message.clone()).await;
 }

@@ -9,10 +9,11 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Input, InputConfig};
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::Uart;
-use esp_hal::Blocking;
+use esp_hal::uart::{AtCmdConfig, Uart};
+use esp_hal::Async;
 use webserver_html::alloc::format;
 use webserver_html::alloc::rc::Rc;
 use webserver_html::net::mqtt::MQTTService;
@@ -48,10 +49,26 @@ async fn main(spawner: Spawner) {
     .await;
 
     info!("MAC Address: {:#x}", mac_address);
+    let config = esp_hal::uart::Config::default()
+        .with_baudrate(9600)
+        .with_parity(esp_hal::uart::Parity::None)
+        .with_data_bits(esp_hal::uart::DataBits::_8)
+        .with_stop_bits(esp_hal::uart::StopBits::_1);
+    // .with_rx(RxConfig::default().with_fifo_full_threshold(1024));
 
-    let uart = Uart::new(peripherals.UART1, esp_hal::uart::Config::default()).unwrap();
+    let mut uart = Uart::new(peripherals.UART2, config)
+        .unwrap()
+        .with_rx(peripherals.GPIO17)
+        .with_tx(peripherals.GPIO16)
+        .into_async();
+    uart.set_at_cmd(AtCmdConfig::default().with_cmd_char(0x04));
 
-    let (printer, printer_writer) = printer::new(uart).await;
+    let input = Input::new(
+        peripherals.GPIO14,
+        InputConfig::default().with_pull(esp_hal::gpio::Pull::Down),
+    );
+
+    let (printer, printer_writer) = printer::new(uart, input).await;
     spawner.must_spawn(printer_task(printer));
     info!("Printer initialized...");
 
@@ -68,7 +85,7 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(mqtt_task(mqtt));
     info!("MQTT initialized...");
 
-    let web = Rc::new(WebService::new(stack, printer_writer).await);
+    let web = Rc::new(WebService::new(stack, printer_writer.clone()).await);
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, web.clone()));
     }
@@ -88,6 +105,6 @@ async fn mqtt_task(runner: MQTTService) {
 }
 
 #[embassy_executor::task]
-async fn printer_task(runner: ThermalPrinterService<Uart<'static, Blocking>>) {
+async fn printer_task(runner: ThermalPrinterService<Uart<'static, Async>>) {
     runner.run().await
 }
