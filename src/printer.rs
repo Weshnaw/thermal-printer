@@ -1,4 +1,4 @@
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 use defmt::{debug, info};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
@@ -75,34 +75,31 @@ impl<T: embedded_io_async::Write> ThermalPrinterService<T> {
     }
 
     async fn print(&mut self, text: &str) {
-        info!("Printing: {}", text);
+        info!("creating lines: {}", text);
 
-        let mut remaining = text.trim_ascii_end();
+        let mut lines = Vec::new();
+        let mut remaining = text.trim();
+
         while !remaining.is_empty() {
-            // Limit to MAX_CHARACTERS from the end
             let take_len = core::cmp::min(MAX_CHARACTERS_PER_LINE, remaining.len());
-            let start_idx = remaining.len() - take_len;
-            let slice = &remaining[start_idx..];
+            let slice = &remaining[..take_len];
 
-            // Find a space to break at, scanning from the front of the slice
-            let break_point = slice.find(' ').unwrap_or(0);
+            // Try to break at the last space within the slice
+            let break_point = slice.rfind(' ').unwrap_or(take_len);
+            let split_idx = if break_point == 0 { take_len } else { break_point };
 
-            let split_idx = if break_point == 0 {
-                // No space found, or first character is space — just break at slice start
-                start_idx
-            } else {
-                start_idx + break_point
-            };
+            let (line, rest) = remaining.split_at(split_idx);
+            lines.push(line.trim());
 
-            // Split remaining text
-            let (head, tail) = remaining.split_at(split_idx);
-            let line = tail.trim();
-
-            self.print_line(line).await;
-
-            remaining = head.trim_end();
+            remaining = rest.trim_start();
+        }
+        
+        info!("Printing");
+        for line in lines.into_iter().rev() {
+            self.print_line(&line).await;
         }
 
+        info!("Print complete");
         self.advance_paper(2).await;
     }
 

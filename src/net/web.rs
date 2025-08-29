@@ -1,4 +1,4 @@
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
 use defmt::info;
 use embassy_net::Stack;
 use embassy_time::Duration;
@@ -42,9 +42,11 @@ impl WebService {
 
     pub async fn run(&self, id: usize) {
         let port = 80;
-        let mut tcp_rx_buffer = [0; 1024];
-        let mut tcp_tx_buffer = [0; 1024];
-        let mut http_buffer = [0; 2048];
+        
+        // force the buffers into static memory
+        let tcp_rx_buffer = Box::leak(Box::new([0; 1024]));
+        let tcp_tx_buffer = Box::leak(Box::new([0; 1024]));
+        let http_buffer = Box::leak(Box::new([0; 2048]));
 
         picoserve::listen_and_serve_with_state(
             id,
@@ -52,9 +54,9 @@ impl WebService {
             self.config,
             self.stack,
             port,
-            &mut tcp_rx_buffer,
-            &mut tcp_tx_buffer,
-            &mut http_buffer,
+            tcp_rx_buffer,
+            tcp_tx_buffer,
+            http_buffer,
             &self.state,
         )
         .await
