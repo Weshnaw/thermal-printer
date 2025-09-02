@@ -189,9 +189,9 @@ async fn init_mqtt_client<'a>(
         return Err(());
     }
 
-    let producer_queue = format!("embedded/scribe/producer/#");
-    info!("MQTT subscribing to: {}", &producer_queue);
-    if subscribe_to_topic(&mut client, &producer_queue)
+    let producer_queue = "embedded/scribe/producer/#";
+    info!("MQTT subscribing to: {}", producer_queue);
+    if subscribe_to_topic(&mut client, producer_queue)
         .await
         .is_err()
     {

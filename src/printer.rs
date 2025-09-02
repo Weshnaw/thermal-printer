@@ -73,12 +73,14 @@ impl<T: embedded_io_async::Write> ThermalPrinterService<T> {
 
         device
     }
+async fn print(&mut self, text: &str) {
+    info!("creating lines: {}", text);
 
-    async fn print(&mut self, text: &str) {
-        info!("creating lines: {}", text);
+    let mut lines = Vec::new();
 
-        let mut lines = Vec::new();
-        let mut remaining = text.trim();
+    // First, split by explicit newlines
+    for raw_line in text.lines() {
+        let mut remaining = raw_line.trim();
 
         while !remaining.is_empty() {
             let take_len = core::cmp::min(MAX_CHARACTERS_PER_LINE, remaining.len());
@@ -97,15 +99,16 @@ impl<T: embedded_io_async::Write> ThermalPrinterService<T> {
 
             remaining = rest.trim_start();
         }
-
-        info!("Printing");
-        for line in lines.into_iter().rev() {
-            self.print_line(line).await;
-        }
-
-        info!("Print complete");
-        self.advance_paper(2).await;
     }
+
+    info!("Printing");
+    for line in lines.into_iter().rev() {
+        self.print_line(line).await;
+    }
+
+    info!("Print complete");
+    self.advance_paper(1).await;
+}
 
     async fn advance_paper(&mut self, lines: usize) {
         debug!("Advancing: {} lines", lines);
