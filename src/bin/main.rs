@@ -80,7 +80,7 @@ async fn main(spawner: Spawner) {
         mac_address[4],
         mac_address[5]
     );
-    let mqtt = MQTTService::new(stack, rng, client_id);
+    let mqtt = MQTTService::new(stack, rng, client_id, printer_writer.clone());
     spawner.must_spawn(mqtt_task(mqtt));
     info!("MQTT initialized...");
 
