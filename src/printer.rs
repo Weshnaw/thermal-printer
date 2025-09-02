@@ -19,9 +19,7 @@ pub async fn new<T: embedded_io_async::Write>(
     dtr_pin: Input<'static>,
 ) -> (ThermalPrinterService<T>, ThermalPrinter) {
     let mut printer = ThermalPrinterService::new(writer, dtr_pin).await;
-    printer
-        .print("Initialized")
-        .await;
+    printer.print("Initialized").await;
 
     (printer, ThermalPrinter::new())
 }
@@ -73,42 +71,42 @@ impl<T: embedded_io_async::Write> ThermalPrinterService<T> {
 
         device
     }
-async fn print(&mut self, text: &str) {
-    info!("creating lines: {}", text);
+    async fn print(&mut self, text: &str) {
+        info!("creating lines: {}", text);
 
-    let mut lines = Vec::new();
+        let mut lines = Vec::new();
 
-    // First, split by explicit newlines
-    for raw_line in text.lines() {
-        let mut remaining = raw_line.trim();
+        // First, split by explicit newlines
+        for raw_line in text.lines() {
+            let mut remaining = raw_line.trim();
 
-        while !remaining.is_empty() {
-            let take_len = core::cmp::min(MAX_CHARACTERS_PER_LINE, remaining.len());
-            let slice = &remaining[..take_len];
+            while !remaining.is_empty() {
+                let take_len = core::cmp::min(MAX_CHARACTERS_PER_LINE, remaining.len());
+                let slice = &remaining[..take_len];
 
-            // Try to break at the last space within the slice
-            let break_point = slice.rfind(' ').unwrap_or(take_len);
-            let split_idx = if break_point == 0 {
-                take_len
-            } else {
-                break_point
-            };
+                // Try to break at the last space within the slice
+                let break_point = slice.rfind(' ').unwrap_or(take_len);
+                let split_idx = if break_point == 0 {
+                    take_len
+                } else {
+                    break_point
+                };
 
-            let (line, rest) = remaining.split_at(split_idx);
-            lines.push(line.trim());
+                let (line, rest) = remaining.split_at(split_idx);
+                lines.push(line.trim());
 
-            remaining = rest.trim_start();
+                remaining = rest.trim_start();
+            }
         }
-    }
 
-    info!("Printing");
-    for line in lines.into_iter().rev() {
-        self.print_line(line).await;
-    }
+        info!("Printing");
+        for line in lines.into_iter().rev() {
+            self.print_line(line).await;
+        }
 
-    info!("Print complete");
-    self.advance_paper(1).await;
-}
+        info!("Print complete");
+        self.advance_paper(1).await;
+    }
 
     async fn advance_paper(&mut self, lines: usize) {
         debug!("Advancing: {} lines", lines);

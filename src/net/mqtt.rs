@@ -37,7 +37,7 @@ static STATUS_SIGNAL: Signal<CriticalSectionRawMutex, Status> = Signal::new();
 pub async fn status_runner() {
     loop {
         STATUS_SIGNAL.signal(Status::Up);
-        Timer::after(Duration::from_secs(30)).await;
+        Timer::after(Duration::from_secs(10)).await;
     }
 }
 
@@ -74,75 +74,81 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: 
     let mut recv_buffer = [0; 1024];
     let mut write_buffer = [0; 1024];
 
-    let mut client = loop {
-        if let Ok(client) = init_mqtt_client(
-            stack,
-            rng,
-            client_id,
-            &mut rx_buffer,
-            &mut tx_buffer,
-            &mut write_buffer,
-            &mut recv_buffer,
-        )
-        .await
-        {
-            break client;
-        }
-    };
-
-    // TODO; I would prefere to have two loops here one for receiving and one for sending
-
-    info!("Starting mqtt loop");
-    let client_queue = format!("embedded/scribe/client/{client_id}");
-    let mut failure_count = 0;
-    loop {
-        match select(STATUS_SIGNAL.wait(), client.receive_message()).await {
-            embassy_futures::select::Either::First(res) => {
-                if handle_status(&mut client, &client_queue, res)
-                    .await
-                    .is_err()
-                {
-                    failure_count += 10;
-                }
+    'outer: loop {
+        let mut client = loop {
+            if let Ok(client) = init_mqtt_client(
+                stack,
+                rng,
+                client_id,
+                &mut rx_buffer,
+                &mut tx_buffer,
+                &mut write_buffer,
+                &mut recv_buffer,
+            )
+            .await
+            {
+                break client;
             }
-            embassy_futures::select::Either::Second(res) => match res {
-                Ok(msg) => handle_recieve(printer, msg.0, msg.1).await,
-                Err(e) => {
-                    match e {
-                        ReasonCode::NetworkError => {
-                            // I'm not certain but I think the mqtt client just times out after so many seconds of no recieving anything
-                            debug!("MQTT Receive network error");
-                            Timer::after(Duration::from_millis(10)).await;
-                        }
-                        _ => {
-                            error!("MQTT receive Error: {:?}", e);
-                            failure_count += 1;
-                        }
+        };
+
+        // TODO; I would prefere to have two loops here one for receiving and one for sending
+        info!("Starting mqtt loop");
+        let client_queue = format!("embedded/scribe/client/{client_id}");
+        loop {
+            match select(STATUS_SIGNAL.wait(), client.receive_message()).await {
+                embassy_futures::select::Either::First(res) => {
+                    if handle_status(&mut client, &client_queue, res)
+                        .await
+                        .is_err()
+                    {
+                        continue 'outer;
                     }
                 }
-            },
-        }
-
-        if failure_count > 5 {
-            drop(client);
-            client = loop {
-                if let Ok(client) = init_mqtt_client(
-                    stack,
-                    rng,
-                    client_id,
-                    &mut rx_buffer,
-                    &mut tx_buffer,
-                    &mut write_buffer,
-                    &mut recv_buffer,
-                )
-                .await
-                {
-                    break client;
-                }
-            };
-            failure_count = 0;
+                embassy_futures::select::Either::Second(res) => match res {
+                    Ok(msg) => handle_recieve(printer, msg.0, msg.1).await,
+                    Err(e) => match e {
+                        _ => {
+                            // unsure why but this will periodically get get a NetworkError
+                            error!("MQTT receive Error: {:?}", e);
+                            continue 'outer;
+                        }
+                    },
+                },
+            }
         }
     }
+}
+
+async fn handle_status<'a>(
+    client: &mut MqttClient<'a>,
+    topic: &str,
+    status: Status,
+) -> Result<(), ()> {
+    if client.send_ping().await.is_err() {
+        return Err(());
+    }
+
+    if send_message(
+        client,
+        topic,
+        status.as_bytes(),
+        QualityOfService::QoS0,
+        false,
+    )
+    .await
+    .is_err()
+    {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+async fn handle_recieve(printer: &ThermalPrinter, topic: &str, payload: &[u8]) {
+    let message = str::from_utf8(payload).unwrap_or("utf8 decode err");
+    info!("Received message: {} - {}", topic, message);
+
+    printer.print(message.into()).await;
 }
 
 type MqttClient<'a> = client::MqttClient<'a, TcpSocket<'a>, 5, Rng>;
@@ -158,7 +164,7 @@ async fn init_mqtt_client<'a>(
 ) -> Result<MqttClient<'a>, ()> {
     info!("initializing mqtt client");
     let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
-    socket.set_timeout(Some(Duration::from_secs(10)));
+    socket.set_timeout(Some(Duration::from_secs(30)));
     let ip = IpAddress::v4(192, 168, 1, 33); // TODO; make configurable
 
     loop {
@@ -175,6 +181,7 @@ async fn init_mqtt_client<'a>(
     config.add_username(MQTT_USER);
     config.add_password(MQTT_PASSWORD);
     config.max_packet_size = recv_buffer.len() as u32;
+    config.keep_alive = 10;
 
     let mut client = MqttClient::<'a>::new(
         socket,
@@ -269,34 +276,6 @@ async fn send_message<'a>(
             }
         },
     }
-}
-
-async fn handle_status<'a>(
-    client: &mut MqttClient<'a>,
-    topic: &str,
-    status: Status,
-) -> Result<(), ()> {
-    if send_message(
-        client,
-        topic,
-        status.as_bytes(),
-        QualityOfService::QoS0,
-        false,
-    )
-    .await
-    .is_err()
-    {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
-async fn handle_recieve(printer: &ThermalPrinter, topic: &str, payload: &[u8]) {
-    let message = str::from_utf8(payload).unwrap_or("utf8 decode err");
-    info!("Received message: {} - {}", topic, message);
-
-    printer.print(message.into()).await;
 }
 
 // TODO:
