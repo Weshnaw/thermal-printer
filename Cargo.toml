@@ -8,6 +8,30 @@ name = "webserver-html"
 path = "./src/bin/main.rs"
 
 [dependencies]
+defmt = "1.0"
+critical-section = "1.2"
+esp-bootloader-esp-idf = { version = "0.2", features = ["esp32"] }
+esp-hal = { version = "=1.0.0-rc.0", features = ["defmt", "esp32", "unstable"] }
+esp-alloc = { version = "0.8", features = ["defmt"] }
+esp-backtrace = { version = "0.17", features = [
+    "defmt",
+    "esp32",
+    "exception-handler",
+    "panic-handler",
+] }
+esp-println = { version = "0.15", features = ["defmt-espflash", "esp32"] }
+esp-wifi = { version = "0.15", features = [
+    "builtin-scheduler",
+    "defmt",
+    "esp-alloc",
+    "esp32",
+    "wifi",
+] }
+esp-hal-embassy = { version = "0.9", features = ["defmt", "esp32"] }
+embassy-executor = { version = "0.7", features = [
+    "defmt",
+    "task-arena-size-20480",
+] }
 embassy-net = { version = "0.7", features = [
     "defmt",
     "dhcpv4",
@@ -18,46 +42,17 @@ embassy-net = { version = "0.7", features = [
     "udp",
     "alloc",
 ] }
-defmt = "1.0"
-esp-bootloader-esp-idf = "0.1"
-esp-hal = { version = "=1.0.0-beta.1", features = [
-    "defmt",
-    "esp32",
-    "unstable",
-] }
+embassy-time = { version = "0.5", features = ["defmt"] }
+embassy-futures = { version = "0.1", features = ["defmt"] }
+embassy-sync = { version = "0.7", features = ["defmt"] }
 embedded-io = { version = "0.6", features = ["defmt-03"] }
 embedded-io-async = { version = "0.6", features = ["defmt-03"] }
-esp-alloc = { version = "0.8", features = ["defmt"] }
-esp-backtrace = { version = "0.16", features = [
-    "defmt",
-    "esp32",
-    "exception-handler",
-    "panic-handler",
-] }
-esp-println = { version = "0.14", features = ["defmt-espflash", "esp32"] }
-critical-section = "1.2"
-embassy-executor = { version = "0.7", features = [
-    "defmt",
-    "task-arena-size-65536",
-] }
-embassy-time = { version = "0.4", features = ["defmt"] }
-embassy-futures = { version = "0.1", features = ["defmt"] }
-esp-hal-embassy = { version = "0.8", features = ["defmt", "esp32"] }
-esp-wifi = { version = "0.14", features = [
-    "builtin-scheduler",
-    "defmt",
-    "esp-alloc",
-    "esp32",
-    "wifi",
-] }
 static_cell = { version = "2.1", features = ["nightly"] }
-picoserve = { version = "0.16", features = ["defmt", "embassy"] }
-heapless = { version = "0.8", features = ["defmt-03", "serde"] }
 serde = { version = "1.0", default-features = false, features = [
     "alloc",
     "rc",
 ] }
-embassy-sync = { version = "0.7", features = ["defmt"] }
+picoserve = { version = "0.16", features = ["defmt", "embassy"] }
 rust-mqtt = { version = "0.3", default-features = false, features = ["no_std"] }
 
 [profile.dev]

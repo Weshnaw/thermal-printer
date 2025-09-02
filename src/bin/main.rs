@@ -41,7 +41,6 @@ async fn main(spawner: Spawner) {
 
     let (stack, mac_address) = wifi::start_wifi(
         timer1.timer0,
-        peripherals.RADIO_CLK,
         peripherals.WIFI,
         rng,
         &spawner,

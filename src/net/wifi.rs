@@ -2,7 +2,6 @@ use defmt::{debug, info, warn};
 use embassy_executor::Spawner;
 use embassy_net::{DhcpConfig, Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
-use esp_hal::peripherals::RADIO_CLK;
 use esp_hal::rng::Rng;
 use esp_wifi::wifi::{self, WifiController, WifiDevice, WifiEvent, WifiState};
 use esp_wifi::{EspWifiController, EspWifiTimerSource};
@@ -14,14 +13,13 @@ const PASSWORD: &str = env!("WIFI_PASSWORD");
 
 pub async fn start_wifi(
     timer: impl EspWifiTimerSource + 'static,
-    radio_clock: RADIO_CLK<'static>,
     wifi: esp_hal::peripherals::WIFI<'static>,
     mut rng: Rng,
     spawner: &Spawner,
 ) -> (Stack<'static>, [u8; 6]) {
     let esp_wifi_ctrl = &*crate::mk_static!(
         EspWifiController<'static>,
-        esp_wifi::init(timer, rng, radio_clock).unwrap()
+        esp_wifi::init(timer, rng).unwrap()
     );
 
     let (controller, interfaces) = esp_wifi::wifi::new(esp_wifi_ctrl, wifi).unwrap();
