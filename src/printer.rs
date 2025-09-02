@@ -20,7 +20,7 @@ pub async fn new<T: embedded_io_async::Write>(
 ) -> (ThermalPrinterService<T>, ThermalPrinter) {
     let mut printer = ThermalPrinterService::new(writer, dtr_pin).await;
     printer
-        .print("Test Print, extra lines 12345678901234567890")
+        .print("Initialized")
         .await;
 
     (printer, ThermalPrinter::new())

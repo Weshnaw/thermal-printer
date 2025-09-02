@@ -41,6 +41,7 @@ embassy-executor = { version = "0.7", features = [
     "task-arena-size-65536",
 ] }
 embassy-time = { version = "0.4", features = ["defmt"] }
+embassy-futures = { version = "0.1", features = ["defmt"] }
 esp-hal-embassy = { version = "0.8", features = ["defmt", "esp32"] }
 esp-wifi = { version = "0.14", features = [
     "builtin-scheduler",

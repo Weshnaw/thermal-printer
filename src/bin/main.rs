@@ -16,7 +16,7 @@ use esp_hal::uart::{AtCmdConfig, Uart};
 use esp_hal::Async;
 use webserver_html::alloc::format;
 use webserver_html::alloc::rc::Rc;
-use webserver_html::net::mqtt::MQTTService;
+use webserver_html::net::mqtt::{status_runner, MQTTService};
 use webserver_html::net::web::WebService;
 use webserver_html::printer::ThermalPrinterService;
 use webserver_html::{net::wifi, printer};
@@ -90,6 +90,8 @@ async fn main(spawner: Spawner) {
         spawner.must_spawn(web_task(id, web.clone()));
     }
     info!("Web Server initialized...");
+
+    spawner.must_spawn(status_task());
 }
 
 /* -------------- WEB SERVER TASK -------------- */
@@ -107,4 +109,9 @@ async fn mqtt_task(runner: MQTTService) {
 #[embassy_executor::task]
 async fn printer_task(runner: ThermalPrinterService<Uart<'static, Async>>) {
     runner.run().await
+}
+
+#[embassy_executor::task]
+async fn status_task() {
+    status_runner().await
 }
