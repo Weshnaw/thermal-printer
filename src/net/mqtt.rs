@@ -34,11 +34,17 @@ impl MQTTService {
     }
 }
 
-async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
+async fn init_mqtt_client<'a>(
+    stack: Stack<'static>,
+    rng: Rng,
+    client_id: &'a str,
+    rx_buffer: &'a mut [u8],
+    tx_buffer: &'a mut [u8],
+    write_buffer: &'a mut [u8],
+    recv_buffer: &'a mut [u8],
+) -> Result<MqttClient<'a, TcpSocket<'a>, 5, Rng>, ()> {
     info!("initializing mqtt client");
-    let mut rx_buffer = [0; 1024];
-    let mut tx_buffer = [0; 1024];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(10)));
     let ip = IpAddress::v4(192, 168, 1, 33); // TODO; make configurable
 
@@ -57,35 +63,58 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
     config.add_password(MQTT_PASSWORD);
     config.max_packet_size = 1000;
 
-    let mut recv_buffer = [0; 1024];
-    let mut write_buffer = [0; 1024];
+    let mut client =
+        MqttClient::<_, 5, _>::new(socket, write_buffer, 1024, recv_buffer, 1024, config);
 
-    let mut client = MqttClient::<_, 5, _>::new(
-        socket,
-        &mut write_buffer,
-        1024,
-        &mut recv_buffer,
-        1024,
-        config,
-    );
-
+    let mut failure_count = 0;
     loop {
         match client.connect_to_broker().await {
             Ok(()) => break,
             Err(mqtt_error) => match mqtt_error {
                 ReasonCode::NetworkError => {
                     error!("MQTT Network Error");
+                    failure_count += 1;
                 }
                 _ => {
                     error!("Other MQTT Error: {:?}", mqtt_error);
+                    failure_count += 1;
                 }
             },
+        }
+        if failure_count > 5 {
+            return Err(());
         }
         Timer::after(Duration::from_secs(5)).await;
     }
 
+    Ok(client)
+}
+
+async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
+    let mut rx_buffer = [0; 1024];
+    let mut tx_buffer = [0; 1024];
+    let mut recv_buffer = [0; 1024];
+    let mut write_buffer = [0; 1024];
+
+    let mut client = loop {
+        if let Ok(client) = init_mqtt_client(
+            stack,
+            rng,
+            client_id,
+            &mut rx_buffer,
+            &mut tx_buffer,
+            &mut write_buffer,
+            &mut recv_buffer,
+        )
+        .await
+        {
+            break client;
+        }
+    };
+
     // TODO; I would prefere to have two loops here one for receiving and one for sending
-    let client_queue = format!("embedded/scribe/client/{}", client_id);
+    let client_queue = format!("embedded/scribe/client/{client_id}");
+    let mut failure_count = 0;
     loop {
         match client
             .send_message(&client_queue, "up".as_bytes(), QualityOfService::QoS0, true)
@@ -97,13 +126,32 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str) {
             Err(mqtt_error) => match mqtt_error {
                 ReasonCode::NetworkError => {
                     error!("MQTT Network Error");
-                    continue;
+                    failure_count += 1;
                 }
                 _ => {
                     error!("Other MQTT Error: {:?}", mqtt_error);
-                    continue;
+                    failure_count += 1;
                 }
             },
+        }
+        if failure_count > 5 {
+            drop(client);
+            client = loop {
+                if let Ok(client) = init_mqtt_client(
+                    stack,
+                    rng,
+                    client_id,
+                    &mut rx_buffer,
+                    &mut tx_buffer,
+                    &mut write_buffer,
+                    &mut recv_buffer,
+                )
+                .await
+                {
+                    break client;
+                }
+            };
+            failure_count = 0;
         }
         Timer::after(Duration::from_secs(5)).await;
     }
