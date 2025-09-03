@@ -39,13 +39,8 @@ async fn main(spawner: Spawner) {
     let timer1 = TimerGroup::new(peripherals.TIMG0);
     let rng = Rng::new(peripherals.RNG);
 
-    let (stack, mac_address) = wifi::start_wifi(
-        timer1.timer0,
-        peripherals.WIFI,
-        rng,
-        &spawner,
-    )
-    .await;
+    let (stack, mac_address) =
+        wifi::start_wifi(timer1.timer0, peripherals.WIFI, rng, &spawner).await;
 
     info!("MAC Address: {:#x}", mac_address);
     let config = esp_hal::uart::Config::default()

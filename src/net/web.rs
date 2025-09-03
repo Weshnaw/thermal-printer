@@ -42,7 +42,7 @@ impl WebService {
 
     pub async fn run(&self, id: usize) {
         let port = 80;
-        
+
         // force the buffers into static memory
         let tcp_rx_buffer = Box::leak(Box::new([0; 1024]));
         let tcp_tx_buffer = Box::leak(Box::new([0; 1024]));

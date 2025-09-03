@@ -10,7 +10,7 @@ use rust_mqtt::{
         client,
         client_config::{ClientConfig, MqttVersion},
     },
-    packet::v5::{publish_packet::QualityOfService, reason_codes::ReasonCode},
+    packet::v5::publish_packet::QualityOfService,
 };
 
 use crate::printer::ThermalPrinter;
@@ -106,13 +106,10 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: 
                 }
                 embassy_futures::select::Either::Second(res) => match res {
                     Ok(msg) => handle_recieve(printer, msg.0, msg.1).await,
-                    Err(e) => match e {
-                        _ => {
-                            // unsure why but this will periodically get get a NetworkError
-                            error!("MQTT receive Error: {:?}", e);
-                            continue 'outer;
-                        }
-                    },
+                    Err(e) => {
+                        error!("MQTT Error in receive: {:?}", e);
+                        continue 'outer;
+                    }
                 },
             }
         }
@@ -212,16 +209,10 @@ async fn subscribe_to_topic<'a>(client: &mut MqttClient<'a>, topic: &str) -> Res
     loop {
         match client.subscribe_to_topic(topic).await {
             Ok(()) => return Ok(()),
-            Err(mqtt_error) => match mqtt_error {
-                ReasonCode::NetworkError => {
-                    error!("MQTT Network Error");
-                    failure_count += 1;
-                }
-                _ => {
-                    error!("Other MQTT Error: {:?}", mqtt_error);
-                    failure_count += 1;
-                }
-            },
+            Err(mqtt_error) => {
+                error!("MQTT Error in subscribe: {:?}", mqtt_error);
+                failure_count += 1;
+            }
         }
         if failure_count > 5 {
             return Err(());
@@ -235,16 +226,10 @@ async fn connect_to_broker<'a>(client: &mut MqttClient<'a>) -> Result<(), ()> {
     loop {
         match client.connect_to_broker().await {
             Ok(()) => return Ok(()),
-            Err(mqtt_error) => match mqtt_error {
-                ReasonCode::NetworkError => {
-                    error!("MQTT Network Error");
-                    failure_count += 1;
-                }
-                _ => {
-                    error!("Other MQTT Error: {:?}", mqtt_error);
-                    failure_count += 1;
-                }
-            },
+            Err(mqtt_error) => {
+                error!("MQTT Error in connect to broker: {:?}", mqtt_error);
+                failure_count += 1;
+            }
         }
         if failure_count > 5 {
             return Err(());
@@ -265,16 +250,10 @@ async fn send_message<'a>(
             debug!("sent message");
             Ok(())
         }
-        Err(mqtt_error) => match mqtt_error {
-            ReasonCode::NetworkError => {
-                error!("MQTT Network Error");
-                Err(())
-            }
-            _ => {
-                error!("Other MQTT Error: {:?}", mqtt_error);
-                Err(())
-            }
-        },
+        Err(mqtt_error) => {
+            error!("MQTT Error in send: {:?}", mqtt_error);
+            Err(())
+        }
     }
 }
 
