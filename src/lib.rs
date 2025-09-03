@@ -5,6 +5,7 @@ pub extern crate alloc;
 
 pub mod net;
 pub mod printer;
+pub mod config;
 
 #[macro_export]
 macro_rules! mk_static {

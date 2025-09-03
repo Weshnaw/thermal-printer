@@ -6,10 +6,8 @@ use esp_hal::rng::Rng;
 use esp_wifi::wifi::{self, WifiController, WifiDevice, WifiEvent, WifiState};
 use esp_wifi::{EspWifiController, EspWifiTimerSource};
 
+use crate::config::Config;
 use crate::mk_static;
-
-const SSID: &str = env!("WIFI_SSID");
-const PASSWORD: &str = env!("WIFI_PASSWORD");
 
 pub async fn start_wifi(
     timer: impl EspWifiTimerSource + 'static,
@@ -59,8 +57,8 @@ async fn connection_task(mut controller: WifiController<'static>) {
 
         if !matches!(controller.is_started(), Ok(true)) {
             let client_config = wifi::Configuration::Client(wifi::ClientConfiguration {
-                ssid: SSID.into(),
-                password: PASSWORD.into(),
+                ssid: Config::wifi_ssid().await.as_ref().into(),
+                password: Config::wifi_password().await.as_ref().into(),
                 ..Default::default()
             });
             controller.set_configuration(&client_config).unwrap();

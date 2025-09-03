@@ -13,10 +13,7 @@ use rust_mqtt::{
     packet::v5::{publish_packet::QualityOfService, reason_codes::ReasonCode},
 };
 
-use crate::printer::ThermalPrinter;
-
-const MQTT_USER: &str = env!("MQTT_USER");
-const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
+use crate::{config::Config, printer::ThermalPrinter};
 
 pub enum Status {
     Up,
@@ -178,8 +175,8 @@ async fn init_mqtt_client<'a>(
     let mut config = ClientConfig::new(MqttVersion::MQTTv5, rng);
     config.add_max_subscribe_qos(QualityOfService::QoS2);
     config.add_client_id(client_id);
-    config.add_username(MQTT_USER);
-    config.add_password(MQTT_PASSWORD);
+    config.add_username(Config::mqtt_user().await);
+    config.add_password(Config::mqtt_password().await.as_ref());
     config.max_packet_size = recv_buffer.len() as u32;
     config.keep_alive = 10;
 

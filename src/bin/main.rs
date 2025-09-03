@@ -16,6 +16,7 @@ use esp_hal::uart::{AtCmdConfig, Uart};
 use esp_hal::Async;
 use webserver_html::alloc::format;
 use webserver_html::alloc::rc::Rc;
+use webserver_html::config::setup_config_from_env;
 use webserver_html::net::mqtt::{status_runner, MQTTService};
 use webserver_html::net::web::WebService;
 use webserver_html::printer::ThermalPrinterService;
@@ -38,6 +39,8 @@ async fn main(spawner: Spawner) {
 
     let timer1 = TimerGroup::new(peripherals.TIMG0);
     let rng = Rng::new(peripherals.RNG);
+
+    setup_config_from_env().await;
 
     let (stack, mac_address) = wifi::start_wifi(
         timer1.timer0,
