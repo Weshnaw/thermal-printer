@@ -5,4 +5,4 @@ specific model of thermal printer:
 - MC206H
 
 Inspiration:
-- (scribe)[https://github.com/UrbanCircles/scribe/tree/main]
+- [scribe](https://github.com/UrbanCircles/scribe/tree/main)
