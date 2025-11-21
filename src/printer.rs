@@ -6,10 +6,11 @@ use embassy_sync::{
 };
 use esp_hal::gpio::Input;
 
+const CHANNEL_SIZE: usize = 8;
 type MessageData = Arc<str>;
-type PrinterChannel = Channel<CriticalSectionRawMutex, MessageData, 8>;
-type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, 8>;
-type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, 8>;
+type PrinterChannel = Channel<CriticalSectionRawMutex, MessageData, CHANNEL_SIZE>;
+type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, CHANNEL_SIZE>;
+type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, CHANNEL_SIZE>;
 
 static PRINTER_CHANNEL: PrinterChannel = Channel::new();
 static MAX_CHARACTERS_PER_LINE: usize = 30;
@@ -37,7 +38,7 @@ impl ThermalPrinter {
     }
 
     pub async fn print(&self, buf: MessageData) {
-        info!("Sending data: {}", buf);
+        info!("Sending data: {}", buf.as_ref());
         self.printer_tx.send(buf).await;
         info!("Data sent");
     }
@@ -135,7 +136,7 @@ impl<T: embedded_io_async::Write> ThermalPrinterService<T> {
     pub async fn run(mut self) {
         loop {
             let data = self.printer_rx.receive().await;
-            info!("Received data: {}", data);
+            info!("Received data: {}", data.as_ref());
             self.print(&data).await;
         }
     }

@@ -8,40 +8,49 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Input, InputConfig};
-use esp_hal::rng::Rng;
-use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{AtCmdConfig, Uart};
 use esp_hal::Async;
+use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
+use esp_hal::gpio::{Input, InputConfig};
+use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::peripherals::{ADC1, GPIO32};
+use esp_hal::rng::Rng;
+use esp_hal::system::Stack;
+use esp_hal::timer::timg::TimerGroup;
+use esp_hal::uart::AtCmdConfig;
+use esp_hal::{clock::CpuClock, uart::Uart};
+use esp_rtos::embassy::Executor;
+use static_cell::StaticCell;
 use webserver_html::alloc::format;
-use webserver_html::alloc::rc::Rc;
-use webserver_html::net::mqtt::{status_runner, MQTTService};
+use webserver_html::net::mqtt::{MQTTService, status_runner};
+// use webserver_html::net::mqtt::MQTTService;
 use webserver_html::net::web::WebService;
 use webserver_html::printer::ThermalPrinterService;
-use webserver_html::{net::wifi, printer};
+use webserver_html::shutdown::ShutdownService;
 
 use {esp_backtrace as _, esp_println as _};
 
 esp_bootloader_esp_idf::esp_app_desc!();
-#[esp_hal_embassy::main]
+
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    esp_alloc::heap_allocator!(size: 72 * 1024);
+    esp_alloc::heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 98767);
 
-    let timer0 = TimerGroup::new(peripherals.TIMG1);
-    esp_hal_embassy::init(timer0.timer0);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_rtos::start(timg0.timer0);
 
-    info!("Embassy initialized...");
+    info!("Embassy initialized!");
 
-    let timer1 = TimerGroup::new(peripherals.TIMG0);
-    let rng = Rng::new(peripherals.RNG);
+    let radio_init = &*webserver_html::mk_static!(
+        esp_radio::Controller<'static>,
+        esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller")
+    );
+    let rng = Rng::new();
 
     let (stack, mac_address) =
-        wifi::start_wifi(timer1.timer0, peripherals.WIFI, rng, &spawner).await;
-
+        webserver_html::net::wifi::start_wifi(radio_init, peripherals.WIFI, rng, &spawner).await;
     info!("MAC Address: {:#x}", mac_address);
     let config = esp_hal::uart::Config::default()
         .with_baudrate(9600)
@@ -62,7 +71,7 @@ async fn main(spawner: Spawner) {
         InputConfig::default().with_pull(esp_hal::gpio::Pull::Down),
     );
 
-    let (printer, printer_writer) = printer::new(uart, input).await;
+    let (printer, printer_writer) = webserver_html::printer::new(uart, input).await;
     spawner.must_spawn(printer_task(printer));
     info!("Printer initialized...");
 
@@ -79,33 +88,71 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(mqtt_task(mqtt));
     info!("MQTT initialized...");
 
-    let web = Rc::new(WebService::new(stack, printer_writer.clone()).await);
+    let web =
+        &*webserver_html::mk_static!(WebService, WebService::new(stack, printer_writer).await);
     for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(web_task(id, web.clone()));
+        spawner.must_spawn(web_task(id, web));
     }
     info!("Web Server initialized...");
 
+    // ADC2 cannot be used with wifi, so I would have to refactor this to be use some external ADC
+    let adc_pin = peripherals.GPIO32;
+    let mut adc_config = AdcConfig::new();
+    let pin = adc_config.enable_pin(adc_pin, Attenuation::_11dB);
+    let adc = Adc::new(peripherals.ADC1, adc_config);
     spawner.must_spawn(status_task());
+
+    let shutdown = ShutdownService::new(pin, adc);
+
+    // second core
+    // TODO: could probably utilize the multiple cores better
+    let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
+    let app_core_stack = APP_CORE_STACK.init(Stack::new());
+    esp_rtos::start_second_core(
+        peripherals.CPU_CTRL,
+        software_interrupt.software_interrupt0,
+        software_interrupt.software_interrupt1,
+        app_core_stack,
+        move || {
+            static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+            let executor = EXECUTOR.init(Executor::new());
+            executor.run(|spawner| {
+                spawner.must_spawn(shutdown_task(shutdown));
+            });
+        },
+    );
 }
 
-/* -------------- WEB SERVER TASK -------------- */
+const BUFFER_SIZE: usize = 1024;
 const WEB_TASK_POOL_SIZE: usize = 2;
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
-async fn web_task(id: usize, runner: Rc<WebService>) {
-    runner.run(id).await;
+pub async fn web_task(id: usize, service: &'static WebService) -> ! {
+    let mut rx_buffer = [0u8; BUFFER_SIZE];
+    let mut tx_buffer = [0u8; BUFFER_SIZE];
+    let mut http_buffer = [0u8; BUFFER_SIZE * 2];
+
+    service
+        .run(id, &mut rx_buffer, &mut tx_buffer, &mut http_buffer)
+        .await
 }
 
 #[embassy_executor::task]
-async fn mqtt_task(runner: MQTTService) {
-    runner.run().await;
+async fn mqtt_task(service: MQTTService) {
+    service.run().await;
 }
 
 #[embassy_executor::task]
-async fn printer_task(runner: ThermalPrinterService<Uart<'static, Async>>) {
-    runner.run().await
+async fn printer_task(service: ThermalPrinterService<Uart<'static, Async>>) {
+    service.run().await
 }
 
 #[embassy_executor::task]
 async fn status_task() {
     status_runner().await
+}
+
+#[embassy_executor::task]
+async fn shutdown_task(service: ShutdownService<GPIO32<'static>, ADC1<'static>>) {
+    service.run().await
 }

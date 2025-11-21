@@ -1,15 +1,19 @@
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
+// use alloc::sync::Arc;
 use defmt::info;
 use embassy_net::Stack;
 use embassy_time::Duration;
 use esp_alloc as _;
 use picoserve::{
+    AppRouter, AppWithStateBuilder,
     extract::State,
     response::{File, IntoResponse},
-    routing, AppRouter, AppWithStateBuilder,
+    routing,
 };
 
 use crate::printer::ThermalPrinter;
+
+// use crate::printer::ThermalPrinter;
 
 pub struct WebService {
     stack: Stack<'static>,
@@ -40,32 +44,24 @@ impl WebService {
         }
     }
 
-    pub async fn run(&self, id: usize) {
+    pub async fn run(
+        &self,
+        id: usize,
+        rx_buffer: &mut [u8],
+        tx_buffer: &mut [u8],
+        http_buffer: &mut [u8],
+    ) -> ! {
         let port = 80;
 
-        // force the buffers into static memory
-        let tcp_rx_buffer = Box::leak(Box::new([0; 1024]));
-        let tcp_tx_buffer = Box::leak(Box::new([0; 1024]));
-        let http_buffer = Box::leak(Box::new([0; 2048]));
-
-        picoserve::listen_and_serve_with_state(
-            id,
-            self.router,
+        picoserve::Server::new(
+            &self.router.shared().with_state(&self.state),
             self.config,
-            self.stack,
-            port,
-            tcp_rx_buffer,
-            tcp_tx_buffer,
             http_buffer,
-            &self.state,
         )
+        .listen_and_serve(id, self.stack, port, rx_buffer, tx_buffer)
         .await
+        .into_never()
     }
-}
-
-#[derive(Clone)]
-struct AppState {
-    printer: ThermalPrinter,
 }
 
 struct Application;
@@ -81,6 +77,11 @@ impl AppWithStateBuilder for Application {
             routing::get_service(File::html(INDEX_PAGE)).post(post_handler),
         )
     }
+}
+
+#[derive(Clone)]
+struct AppState {
+    printer: ThermalPrinter,
 }
 
 #[derive(serde::Deserialize)]
