@@ -1,7 +1,7 @@
 use alloc::{format, string::String};
 use defmt::{debug, error, info};
 use embassy_futures::select::select;
-use embassy_net::{tcp::TcpSocket, IpAddress, Stack};
+use embassy_net::{IpAddress, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
@@ -118,8 +118,9 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: 
         loop {
             match select(STATUS_SIGNAL.wait(), client.receive_message()).await {
                 embassy_futures::select::Either::First(res) => {
-                    if let Err(_) = handle_status(&mut client, &client_queue, res)
+                    if handle_status(&mut client, &client_queue, res)
                         .await
+                        .is_err()
                     {
                         error!("Failed to handle Status");
                         continue 'outer;

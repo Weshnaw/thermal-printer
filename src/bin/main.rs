@@ -102,9 +102,8 @@ async fn main(spawner: Spawner) {
     let adc = Adc::new(peripherals.ADC1, adc_config);
     spawner.must_spawn(status_task());
 
-
     let shutdown = ShutdownService::new(pin, adc);
-    
+
     // second core
     // TODO: could probably utilize the multiple cores better
     let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);

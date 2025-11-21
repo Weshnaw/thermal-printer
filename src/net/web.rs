@@ -23,7 +23,7 @@ pub struct WebService {
 }
 
 impl WebService {
-    pub async fn new(stack: Stack<'static> , printer: ThermalPrinter) -> WebService {
+    pub async fn new(stack: Stack<'static>, printer: ThermalPrinter) -> WebService {
         let router = picoserve::make_static!(AppRouter<Application>, Application.build_app());
         let config = picoserve::make_static!(
             picoserve::Config<Duration>,
