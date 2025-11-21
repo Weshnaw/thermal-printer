@@ -1,4 +1,4 @@
-use defmt::debug;
+use defmt::{info, warn};
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     watch::{Receiver, Sender, Watch},
@@ -37,18 +37,18 @@ impl<P: AnalogPin + AdcChannel, ADCI: RegisterAccess> ShutdownService<P, ADCI> {
             let adc_value: u16 = match nb::block!(self.adc.read_oneshot(&mut self.adc_pin)) {
                 Ok(v) => v,
                 Err(_) => {
-                    debug!("Failed to read shutdown ADC");
+                    warn!("Failed to read shutdown ADC");
                     continue;
                 }
             };
 
-            debug!("Shutdown ADC: {}", adc_value);
+            info!("Shutdown ADC: {}", adc_value);
 
             if adc_value < 10 {
                 self.shutdown_sender.send(1);
             }
 
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after(Duration::from_secs(5)).await;
         }
     }
 }

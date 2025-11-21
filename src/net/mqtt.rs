@@ -118,10 +118,10 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: 
         loop {
             match select(STATUS_SIGNAL.wait(), client.receive_message()).await {
                 embassy_futures::select::Either::First(res) => {
-                    if handle_status(&mut client, &client_queue, res)
+                    if let Err(_) = handle_status(&mut client, &client_queue, res)
                         .await
-                        .is_err()
                     {
+                        error!("Failed to handle Status");
                         continue 'outer;
                     }
                 }

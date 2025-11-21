@@ -32,7 +32,7 @@ pub async fn start_wifi(
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         net_config,
-        mk_static!(StackResources<3>, StackResources::<3>::new()),
+        mk_static!(StackResources<5>, StackResources::<5>::new()),
         net_seed,
     );
 
@@ -46,14 +46,9 @@ pub async fn start_wifi(
 
 async fn wait_for_connection(stack: Stack<'_>) {
     info!("Waiting for link to be up");
-    loop {
-        if stack.is_link_up() {
-            break;
-        }
-        Timer::after(Duration::from_millis(500)).await;
-    }
-
+    stack.wait_link_up().await;
     info!("Waiting to get IP address...");
+    stack.wait_config_up().await;
     loop {
         if let Some(config) = stack.config_v4() {
             info!("Got IP: {}", config.address);

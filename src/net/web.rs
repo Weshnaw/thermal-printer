@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 // use alloc::sync::Arc;
 use defmt::info;
 use embassy_net::Stack;
@@ -83,16 +84,16 @@ struct AppState {
     printer: ThermalPrinter,
 }
 
-// #[derive(serde::Deserialize)]
-// struct SubmitData {
-//     message: Arc<str>,
-// }
+#[derive(serde::Deserialize)]
+struct SubmitData {
+    message: Arc<str>,
+}
 
 async fn post_handler(
     State(state): picoserve::extract::State<AppState>,
-    // data: picoserve::extract::Form<SubmitData>,
+    data: picoserve::extract::Form<SubmitData>,
 ) -> impl IntoResponse {
-    info!("Received message: {}", 1);
+    info!("Received message: {}", data.message.as_ref());
 
-    state.printer.print("Test".into()).await;
+    state.printer.print(data.message.clone()).await;
 }
