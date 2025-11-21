@@ -13,13 +13,15 @@ use rust_mqtt::{
     packet::v5::publish_packet::QualityOfService,
 };
 
-use crate::printer::ThermalPrinter;
+use crate::{printer::ThermalPrinter, shutdown::SHUTDOWN_WATCHER};
 
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
 
+#[derive(Clone, Copy)]
 pub enum Status {
     Up,
+    ShuttingDown,
     Down,
 }
 
@@ -28,6 +30,7 @@ impl Status {
         match &self {
             Status::Up => "up".as_bytes(),
             Status::Down => "down".as_bytes(),
+            Status::ShuttingDown => "shutting down".as_bytes(),
         }
     }
 }
@@ -35,9 +38,27 @@ impl Status {
 static STATUS_SIGNAL: Signal<CriticalSectionRawMutex, Status> = Signal::new();
 
 pub async fn status_runner() {
+    let mut shutdown_recv = match SHUTDOWN_WATCHER.receiver() {
+        Some(recv) => recv,
+        None => {
+            panic!("Failed to retrieve shutdown recv")
+        }
+    };
+
+    let mut current_status = Status::Up;
+
     loop {
-        STATUS_SIGNAL.signal(Status::Up);
-        Timer::after(Duration::from_secs(10)).await;
+        STATUS_SIGNAL.signal(current_status);
+        if select(
+            Timer::after(Duration::from_secs(10)),
+            shutdown_recv.changed(),
+        )
+        .await
+        .is_second()
+        {
+            STATUS_SIGNAL.signal(Status::ShuttingDown);
+            current_status = Status::Down;
+        }
     }
 }
 
