@@ -2,46 +2,52 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::{DhcpConfig, Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
-use esp_hal::rng::Rng;
-use esp_radio::wifi::{
-    ClientConfig, ModeConfig, ScanConfig, WifiController, WifiDevice, WifiEvent, WifiStaState,
-};
 
-use crate::mk_static;
+use crate::{
+    glue::{Wifi, WifiController, WifiInterface},
+    mk_static,
+};
 
 const SSID: &str = env!("WIFI_SSID");
 const PASSWORD: &str = env!("WIFI_PASSWORD");
 
-pub async fn start_wifi(
-    radio_init: &'static esp_radio::Controller<'static>,
-    wifi: esp_hal::peripherals::WIFI<'static>,
-    rng: Rng,
-    spawner: &Spawner,
-) -> (Stack<'static>, [u8; 6]) {
-    let (wifi_controller, interfaces) = esp_radio::wifi::new(radio_init, wifi, Default::default())
-        .expect("Failed to initialize Wi-Fi controller");
-
-    let wifi_interface = interfaces.sta;
-    let net_seed = rng.random() as u64 | ((rng.random() as u64) << 32);
-
+pub async fn start_wifi(wifi: Wifi, spawner: &Spawner) -> (Stack<'static>, [u8; 6]) {
     let dhcp_config = DhcpConfig::default();
     let net_config = embassy_net::Config::dhcpv4(dhcp_config);
 
     // Init network stack
-    let mac_address = wifi_interface.mac_address();
+    let mac_address = wifi.mac_adderss();
+    let seed = wifi.net_seed();
+    let (interface, controller) = wifi.interface();
     let (stack, runner) = embassy_net::new(
-        wifi_interface,
+        interface,
         net_config,
         mk_static!(StackResources<5>, StackResources::<5>::new()),
-        net_seed,
+        seed,
     );
 
-    spawner.spawn(connection(wifi_controller)).ok();
+    spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(runner)).ok();
 
     wait_for_connection(stack).await;
 
     (stack, mac_address)
+}
+
+#[embassy_executor::task]
+async fn connection(mut controller: WifiController) {
+    info!("start connection task");
+    info!(
+        "Device capabilities: {:?}",
+        controller.capabilities()
+    );
+
+    controller.connection_loop(SSID, PASSWORD).await;
+}
+
+#[embassy_executor::task]
+async fn net_task(mut runner: Runner<'static, WifiInterface>) {
+    runner.run().await
 }
 
 async fn wait_for_connection(stack: Stack<'_>) {
@@ -56,53 +62,4 @@ async fn wait_for_connection(stack: Stack<'_>) {
         }
         Timer::after(Duration::from_millis(500)).await;
     }
-}
-
-#[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
-    info!("start connection task");
-    info!("Device capabilities: {:?}", controller.capabilities());
-    loop {
-        if esp_radio::wifi::sta_state() == WifiStaState::Connected {
-            // wait until we're no longer connected
-            controller.wait_for_event(WifiEvent::StaDisconnected).await;
-            Timer::after(Duration::from_millis(5000)).await
-        }
-
-        if !matches!(controller.is_started(), Ok(true)) {
-            let client_config = ModeConfig::Client(
-                ClientConfig::default()
-                    .with_ssid(SSID.into())
-                    .with_password(PASSWORD.into()),
-            );
-            controller.set_config(&client_config).unwrap();
-            info!("Starting wifi");
-            controller.start_async().await.unwrap();
-            info!("Wifi started!");
-
-            info!("Scan");
-            let scan_config = ScanConfig::default().with_max(10);
-            let result = controller
-                .scan_with_config_async(scan_config)
-                .await
-                .unwrap();
-            for ap in result {
-                info!("{:?}", ap);
-            }
-        }
-        info!("About to connect...");
-
-        match controller.connect_async().await {
-            Ok(_) => info!("Wifi connected!"),
-            Err(e) => {
-                info!("Failed to connect to wifi: {:?}", e);
-                Timer::after(Duration::from_millis(5000)).await
-            }
-        }
-    }
-}
-
-#[embassy_executor::task]
-async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
-    runner.run().await
 }

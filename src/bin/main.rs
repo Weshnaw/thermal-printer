@@ -8,26 +8,30 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use esp_hal::Async;
-use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
-use esp_hal::gpio::{Input, InputConfig};
-use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::peripherals::{ADC1, GPIO32};
-use esp_hal::rng::Rng;
-use esp_hal::system::Stack;
-use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::AtCmdConfig;
+use esp_hal::{
+    Async,
+    analog::adc::{Adc, AdcConfig, Attenuation},
+    gpio::{Input, InputConfig},
+    interrupt::software::SoftwareInterruptControl,
+    peripherals::{ADC1, GPIO32},
+    rng::Rng,
+    system::Stack,
+    timer::timg::TimerGroup,
+    uart::AtCmdConfig,
+};
 use esp_hal::{clock::CpuClock, uart::Uart};
 use esp_rtos::embassy::Executor;
 use static_cell::StaticCell;
-use webserver_html::alloc::format;
-use webserver_html::net::mqtt::{MQTTService, status_runner};
-// use webserver_html::net::mqtt::MQTTService;
-use webserver_html::net::web::WebService;
-use webserver_html::printer::ThermalPrinterService;
-use webserver_html::shutdown::ShutdownService;
+use webserver_html::{
+    Wifi,
+    alloc::format,
+    net::mqtt::{MQTTService, status_runner},
+    net::web::WebService,
+    printer::ThermalPrinterService,
+    shutdown::ShutdownService,
+};
 
-use {esp_backtrace as _, esp_println as _};
+use {esp_backtrace as _, esp_println as _, esp_alloc as _};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -49,8 +53,9 @@ async fn main(spawner: Spawner) {
     );
     let rng = Rng::new();
 
-    let (stack, mac_address) =
-        webserver_html::net::wifi::start_wifi(radio_init, peripherals.WIFI, rng, &spawner).await;
+    let wifi = Wifi::new(radio_init, peripherals.WIFI, rng);
+
+    let (stack, mac_address) = webserver_html::start_wifi(wifi, &spawner).await;
     info!("MAC Address: {:#x}", mac_address);
     let config = esp_hal::uart::Config::default()
         .with_baudrate(9600)

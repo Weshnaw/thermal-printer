@@ -1,9 +1,7 @@
 use alloc::sync::Arc;
-// use alloc::sync::Arc;
 use defmt::info;
 use embassy_net::Stack;
 use embassy_time::Duration;
-use esp_alloc as _;
 use picoserve::{
     AppRouter, AppWithStateBuilder,
     extract::State,
@@ -12,8 +10,6 @@ use picoserve::{
 };
 
 use crate::printer::ThermalPrinter;
-
-// use crate::printer::ThermalPrinter;
 
 pub struct WebService {
     stack: Stack<'static>,

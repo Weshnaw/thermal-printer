@@ -3,6 +3,7 @@
 
 pub extern crate alloc;
 
+mod glue;
 pub mod net;
 pub mod printer;
 pub mod shutdown;
@@ -16,3 +17,6 @@ macro_rules! mk_static {
         x
     }};
 }
+
+pub use glue::Wifi;
+pub use net::wifi::start_wifi;
