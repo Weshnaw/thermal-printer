@@ -12,7 +12,6 @@ use esp_hal::{
     analog::adc::{Adc, AdcConfig, Attenuation},
     gpio::{Input, InputConfig},
     interrupt::software::SoftwareInterruptControl,
-    peripherals::{ADC1, GPIO32},
     rng::Rng,
     system::Stack,
     timer::timg::TimerGroup,
@@ -27,8 +26,8 @@ use webserver_html::{
         mqtt::{MQTTService, status_runner},
         web::WebService,
     },
+    power::start_power_monitor,
     prelude::*,
-    shutdown::ShutdownService,
 };
 
 use {esp_alloc as _, esp_backtrace as _, esp_println as _};
@@ -83,6 +82,35 @@ async fn main(spawner: Spawner) {
 
     let printer_writer = start_printer(printer, &spawner).await;
 
+    // init power monitor
+
+    // ADC2 cannot be used with wifi, so I would have to refactor this to be use some external ADC
+    let adc_pin = peripherals.GPIO32;
+    let mut adc_config = AdcConfig::new();
+    let pin = adc_config.enable_pin(adc_pin, Attenuation::_11dB);
+    let adc = Adc::new(peripherals.ADC1, adc_config);
+
+    let power_monitor = PowerMonitorADC::new(pin, adc);
+
+    // init second core
+
+    let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
+    let app_core_stack = APP_CORE_STACK.init(Stack::new());
+    esp_rtos::start_second_core(
+        peripherals.CPU_CTRL,
+        software_interrupt.software_interrupt0,
+        software_interrupt.software_interrupt1,
+        app_core_stack,
+        move || {
+            static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+            let executor = EXECUTOR.init(Executor::new());
+            executor.run(|spawner| {
+                start_power_monitor(power_monitor, &spawner);
+            });
+        },
+    );
+
     // TODO refactoring
 
     let client_id = format!(
@@ -105,32 +133,12 @@ async fn main(spawner: Spawner) {
     }
     info!("Web Server initialized...");
 
-    // ADC2 cannot be used with wifi, so I would have to refactor this to be use some external ADC
-    let adc_pin = peripherals.GPIO32;
-    let mut adc_config = AdcConfig::new();
-    let pin = adc_config.enable_pin(adc_pin, Attenuation::_11dB);
-    let adc = Adc::new(peripherals.ADC1, adc_config);
     spawner.must_spawn(status_task());
-
-    let shutdown = ShutdownService::new(pin, adc);
-
-    let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
-    let app_core_stack = APP_CORE_STACK.init(Stack::new());
-    esp_rtos::start_second_core(
-        peripherals.CPU_CTRL,
-        software_interrupt.software_interrupt0,
-        software_interrupt.software_interrupt1,
-        app_core_stack,
-        move || {
-            static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-            let executor = EXECUTOR.init(Executor::new());
-            executor.run(|spawner| {
-                spawner.must_spawn(shutdown_task(shutdown));
-            });
-        },
-    );
 }
+
+// fn second_thread_main(spawner: &Spawner) {
+
+// }
 
 const BUFFER_SIZE: usize = 1024;
 const WEB_TASK_POOL_SIZE: usize = 2;
@@ -152,9 +160,4 @@ async fn mqtt_task(service: MQTTService) {
 #[embassy_executor::task]
 async fn status_task() {
     status_runner().await
-}
-
-#[embassy_executor::task]
-async fn shutdown_task(service: ShutdownService<GPIO32<'static>, ADC1<'static>>) {
-    service.run().await
 }

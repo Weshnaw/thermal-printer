@@ -5,9 +5,9 @@ pub extern crate alloc;
 
 mod glue;
 pub mod net;
+pub mod power;
 pub mod prelude;
 pub mod printer;
-pub mod shutdown;
 
 #[macro_export]
 macro_rules! mk_static {

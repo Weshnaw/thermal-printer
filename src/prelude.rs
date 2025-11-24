@@ -1,3 +1,4 @@
+pub use crate::glue::PowerMonitorADC;
 pub use crate::glue::ThermalPrinter;
 pub use crate::glue::Wifi;
 pub use crate::net::wifi::start_wifi;

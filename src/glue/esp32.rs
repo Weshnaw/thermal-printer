@@ -1,7 +1,9 @@
+mod power;
 mod printer;
-mod wifi;
 mod rng;
+mod wifi;
 
-pub use rng::*;
+pub use power::*;
 pub use printer::*;
+pub use rng::*;
 pub use wifi::*;

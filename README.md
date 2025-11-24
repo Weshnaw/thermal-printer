@@ -22,3 +22,4 @@ TODO:
   - such as the IP address of mqtt
 - refactor the multi-core to be more clear and concise 
 - update which mqtt crate used to have async as first class
+- a method to calibrate power status ADC automatically

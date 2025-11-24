@@ -1,9 +1,9 @@
 use alloc::{format, string::String};
 use defmt::{debug, error, info};
-use embassy_futures::select::select;
+use embassy_futures::select::{Either, select};
 use embassy_net::{IpAddress, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use rust_mqtt::{
     client::{
         client,
@@ -12,26 +12,28 @@ use rust_mqtt::{
     packet::v5::publish_packet::QualityOfService,
 };
 
-use crate::{glue::Rng, printer::PrinterWriter, shutdown::SHUTDOWN_WATCHER};
+use crate::{
+    glue::Rng,
+    power::{POWER_MONITOR_WATCHER, PowerMonitorData, SHUTDOWN_WATCHER, ShutdownStatus},
+    printer::PrinterWriter,
+};
 
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
 
-#[derive(Clone, Copy)]
-pub enum Status {
+#[derive(Clone, Copy, Debug)]
+pub enum StatusState {
     Up,
     ShuttingDown,
+    RegainedPower,
     Down,
 }
 
-impl Status {
-    fn as_bytes(&self) -> &[u8] {
-        match &self {
-            Status::Up => "up".as_bytes(),
-            Status::Down => "down".as_bytes(),
-            Status::ShuttingDown => "shutting down".as_bytes(),
-        }
-    }
+#[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // for now I'm just using this a a capsul in order to print the debug state of the struct to mqtt
+struct Status {
+    state: StatusState,
+    power_level: PowerMonitorData,
 }
 
 static STATUS_SIGNAL: Signal<CriticalSectionRawMutex, Status> = Signal::new();
@@ -43,20 +45,40 @@ pub async fn status_runner() {
             panic!("Failed to retrieve shutdown recv")
         }
     };
+    let mut power_recv = match POWER_MONITOR_WATCHER.receiver() {
+        Some(recv) => recv,
+        None => {
+            panic!("Failed to retrieve power monitor recv")
+        }
+    };
 
-    let mut current_status = Status::Up;
+    let mut ticker = Ticker::every(Duration::from_secs(5));
 
+    let mut state = StatusState::Up;
     loop {
-        STATUS_SIGNAL.signal(current_status);
-        if select(
-            Timer::after(Duration::from_secs(10)),
-            shutdown_recv.changed(),
-        )
-        .await
-        .is_second()
-        {
-            STATUS_SIGNAL.signal(Status::ShuttingDown);
-            current_status = Status::Down;
+        match select(ticker.next(), shutdown_recv.changed()).await {
+            Either::First(_) => {
+                let power_level = power_recv.get().await;
+                STATUS_SIGNAL.signal(Status { state, power_level });
+            }
+            Either::Second(shutdown_status) => match shutdown_status {
+                ShutdownStatus::LowPower => {
+                    state = StatusState::Down;
+                    let power_level = power_recv.get().await;
+                    STATUS_SIGNAL.signal(Status {
+                        state: StatusState::ShuttingDown,
+                        power_level,
+                    });
+                }
+                ShutdownStatus::NormalPower => {
+                    state = StatusState::Up;
+                    let power_level = power_recv.get().await;
+                    STATUS_SIGNAL.signal(Status {
+                        state: StatusState::RegainedPower,
+                        power_level,
+                    });
+                }
+            },
         }
     }
 }
@@ -143,7 +165,7 @@ async fn handle_status<'a>(
     if send_message(
         client,
         topic,
-        status.as_bytes(),
+        format!("{status:?}").as_bytes(),
         QualityOfService::QoS0,
         false,
     )
