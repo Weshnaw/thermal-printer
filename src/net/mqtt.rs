@@ -13,7 +13,7 @@ use rust_mqtt::{
     packet::v5::publish_packet::QualityOfService,
 };
 
-use crate::{printer::ThermalPrinter, shutdown::SHUTDOWN_WATCHER};
+use crate::{printer::PrinterWriter, shutdown::SHUTDOWN_WATCHER};
 
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
@@ -66,16 +66,11 @@ pub struct MQTTService {
     stack: Stack<'static>,
     rng: Rng,
     client_id: String,
-    printer: ThermalPrinter,
+    printer: PrinterWriter,
 }
 
 impl MQTTService {
-    pub fn new(
-        stack: Stack<'static>,
-        rng: Rng,
-        client_id: String,
-        printer: ThermalPrinter,
-    ) -> Self {
+    pub fn new(stack: Stack<'static>, rng: Rng, client_id: String, printer: PrinterWriter) -> Self {
         MQTTService {
             stack,
             rng,
@@ -89,7 +84,7 @@ impl MQTTService {
     }
 }
 
-async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: &ThermalPrinter) {
+async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: &PrinterWriter) {
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 1024];
     let mut recv_buffer = [0; 1024];
@@ -163,7 +158,7 @@ async fn handle_status<'a>(
     }
 }
 
-async fn handle_recieve(printer: &ThermalPrinter, topic: &str, payload: &[u8]) {
+async fn handle_recieve(printer: &PrinterWriter, topic: &str, payload: &[u8]) {
     let message = str::from_utf8(payload).unwrap_or("utf8 decode err");
     info!("Received message: {} - {}", topic, message);
 

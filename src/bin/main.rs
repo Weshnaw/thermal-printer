@@ -9,7 +9,6 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use esp_hal::{
-    Async,
     analog::adc::{Adc, AdcConfig, Attenuation},
     gpio::{Input, InputConfig},
     interrupt::software::SoftwareInterruptControl,
@@ -23,20 +22,22 @@ use esp_hal::{clock::CpuClock, uart::Uart};
 use esp_rtos::embassy::Executor;
 use static_cell::StaticCell;
 use webserver_html::{
-    Wifi,
     alloc::format,
-    net::mqtt::{MQTTService, status_runner},
-    net::web::WebService,
-    printer::ThermalPrinterService,
+    net::{
+        mqtt::{MQTTService, status_runner},
+        web::WebService,
+    },
+    prelude::*,
     shutdown::ShutdownService,
 };
 
-use {esp_backtrace as _, esp_println as _, esp_alloc as _};
+use {esp_alloc as _, esp_backtrace as _, esp_println as _};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
+    // init esp32
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
@@ -47,6 +48,7 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
+    // init wifi peripherials
     let radio_init = &*webserver_html::mk_static!(
         esp_radio::Controller<'static>,
         esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller")
@@ -55,8 +57,10 @@ async fn main(spawner: Spawner) {
 
     let wifi = Wifi::new(radio_init, peripherals.WIFI, rng);
 
-    let (stack, mac_address) = webserver_html::start_wifi(wifi, &spawner).await;
+    let (stack, mac_address) = start_wifi(wifi, &spawner).await;
     info!("MAC Address: {:#x}", mac_address);
+
+    // init printer peripherials
     let config = esp_hal::uart::Config::default()
         .with_baudrate(9600)
         .with_parity(esp_hal::uart::Parity::None)
@@ -75,10 +79,11 @@ async fn main(spawner: Spawner) {
         peripherals.GPIO14,
         InputConfig::default().with_pull(esp_hal::gpio::Pull::Down),
     );
+    let printer = ThermalPrinter::new(uart, input);
 
-    let (printer, printer_writer) = webserver_html::printer::new(uart, input).await;
-    spawner.must_spawn(printer_task(printer));
-    info!("Printer initialized...");
+    let printer_writer = start_printer(printer, &spawner).await;
+
+    // TODO refactoring
 
     let client_id = format!(
         "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
@@ -146,12 +151,6 @@ pub async fn web_task(id: usize, service: &'static WebService) -> ! {
 async fn mqtt_task(service: MQTTService) {
     service.run().await;
 }
-
-#[embassy_executor::task]
-async fn printer_task(service: ThermalPrinterService<Uart<'static, Async>>) {
-    service.run().await
-}
-
 #[embassy_executor::task]
 async fn status_task() {
     status_runner().await

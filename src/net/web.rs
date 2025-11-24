@@ -9,7 +9,7 @@ use picoserve::{
     routing,
 };
 
-use crate::printer::ThermalPrinter;
+use crate::printer::PrinterWriter;
 
 pub struct WebService {
     stack: Stack<'static>,
@@ -19,7 +19,7 @@ pub struct WebService {
 }
 
 impl WebService {
-    pub async fn new(stack: Stack<'static>, printer: ThermalPrinter) -> WebService {
+    pub async fn new(stack: Stack<'static>, printer: PrinterWriter) -> WebService {
         let router = picoserve::make_static!(AppRouter<Application>, Application.build_app());
         let config = picoserve::make_static!(
             picoserve::Config<Duration>,
@@ -77,7 +77,7 @@ impl AppWithStateBuilder for Application {
 
 #[derive(Clone)]
 struct AppState {
-    printer: ThermalPrinter,
+    printer: PrinterWriter,
 }
 
 #[derive(serde::Deserialize)]

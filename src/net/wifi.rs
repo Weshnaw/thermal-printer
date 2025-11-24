@@ -37,10 +37,7 @@ pub async fn start_wifi(wifi: Wifi, spawner: &Spawner) -> (Stack<'static>, [u8; 
 #[embassy_executor::task]
 async fn connection(mut controller: WifiController) {
     info!("start connection task");
-    info!(
-        "Device capabilities: {:?}",
-        controller.capabilities()
-    );
+    info!("Device capabilities: {:?}", controller.capabilities());
 
     controller.connection_loop(SSID, PASSWORD).await;
 }

@@ -1,4 +1,5 @@
-use defmt::info;
+use alloc::vec::Vec;
+use defmt::{error, info};
 use embassy_net::driver::Driver;
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
@@ -112,14 +113,26 @@ impl WifiController {
                         .with_ssid(ssid.into())
                         .with_password(password.into()),
                 );
-                self.0.set_config(&client_config).unwrap();
+                if let Err(e) = self.0.set_config(&client_config) {
+                    error!("wifi failed to set config: {:?}", e);
+                    panic!("wifi failed to set config: {:?}", e);
+                }
                 info!("Starting wifi");
-                self.0.start_async().await.unwrap();
+                if let Err(e) = self.0.start_async().await {
+                    error!("wifi failed to start: {:?}", e);
+                    panic!("wifi failed to start: {:?}", e);
+                }
                 info!("Wifi started!");
 
                 info!("Scan");
                 let scan_config = ScanConfig::default().with_max(10);
-                let result = self.0.scan_with_config_async(scan_config).await.unwrap();
+                let result = match self.0.scan_with_config_async(scan_config).await {
+                    Ok(ap_info) => ap_info,
+                    Err(e) => {
+                        error!("Failed to discover access points: {:?}", e);
+                        Vec::new()
+                    }
+                };
                 for ap in result {
                     info!("{:?}", ap);
                 }
