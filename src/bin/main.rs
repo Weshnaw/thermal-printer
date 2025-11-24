@@ -94,7 +94,7 @@ async fn main(spawner: Spawner) {
         mac_address[4],
         mac_address[5]
     );
-    let mqtt = MQTTService::new(stack, rng, client_id, printer_writer.clone());
+    let mqtt = MQTTService::new(stack, rng.into(), client_id, printer_writer.clone());
     spawner.must_spawn(mqtt_task(mqtt));
     info!("MQTT initialized...");
 
@@ -114,8 +114,6 @@ async fn main(spawner: Spawner) {
 
     let shutdown = ShutdownService::new(pin, adc);
 
-    // second core
-    // TODO: could probably utilize the multiple cores better
     let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
     let app_core_stack = APP_CORE_STACK.init(Stack::new());

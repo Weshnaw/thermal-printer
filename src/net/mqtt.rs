@@ -4,7 +4,6 @@ use embassy_futures::select::select;
 use embassy_net::{IpAddress, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::rng::Rng;
 use rust_mqtt::{
     client::{
         client,
@@ -13,7 +12,7 @@ use rust_mqtt::{
     packet::v5::publish_packet::QualityOfService,
 };
 
-use crate::{printer::PrinterWriter, shutdown::SHUTDOWN_WATCHER};
+use crate::{glue::Rng, printer::PrinterWriter, shutdown::SHUTDOWN_WATCHER};
 
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
@@ -107,7 +106,6 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: 
             }
         };
 
-        // TODO; I would prefere to have two loops here one for receiving and one for sending
         info!("Starting mqtt loop");
         let client_queue = format!("embedded/scribe/client/{client_id}");
         loop {
@@ -179,7 +177,7 @@ async fn init_mqtt_client<'a>(
     info!("initializing mqtt client");
     let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
-    let ip = IpAddress::v4(192, 168, 1, 33); // TODO; make configurable
+    let ip = IpAddress::v4(192, 168, 1, 33);
 
     loop {
         match socket.connect((ip, 1883)).await {
@@ -273,6 +271,3 @@ async fn send_message<'a>(
         }
     }
 }
-
-// TODO:
-//  - handle configuration messages

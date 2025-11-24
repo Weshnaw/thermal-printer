@@ -45,14 +45,17 @@ impl Wifi {
     }
 
     pub fn interface(self) -> (WifiInterface, WifiController) {
-        (
-            WifiInterface(self.wifi_device),
-            WifiController(self.wifi_controller),
-        )
+        (self.wifi_device.into(), self.wifi_controller.into())
     }
 }
 
 pub struct WifiInterface(WifiDevice<'static>);
+
+impl From<WifiDevice<'static>> for WifiInterface {
+    fn from(value: WifiDevice<'static>) -> Self {
+        Self(value)
+    }
+}
 
 impl Driver for WifiInterface {
     type RxToken<'a>
@@ -89,6 +92,12 @@ impl Driver for WifiInterface {
 }
 
 pub struct WifiController(EspWifiController<'static>);
+
+impl From<EspWifiController<'static>> for WifiController {
+    fn from(value: EspWifiController<'static>) -> Self {
+        Self(value)
+    }
+}
 
 impl WifiController {
     pub fn capabilities(&self) -> Capabilities {

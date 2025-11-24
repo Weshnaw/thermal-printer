@@ -56,7 +56,6 @@ impl Default for PrinterWriter {
     }
 }
 
-// TODO; setup a configuration that lets this be changed dynamically via mqtt
 pub struct ThermalPrinterService {
     printer: ThermalPrinter,
     printer_rx: PrinterReceiver,
