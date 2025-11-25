@@ -17,13 +17,11 @@ type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, C
 static PRINTER_CHANNEL: PrinterChannel = Channel::new();
 static MAX_CHARACTERS_PER_LINE: usize = 30;
 
-pub async fn start_printer(printer: ThermalPrinter, spawner: &Spawner) -> PrinterWriter {
+pub async fn start_printer(printer: ThermalPrinter, spawner: &Spawner) {
     let printer = ThermalPrinterService::new(printer).await;
 
     spawner.must_spawn(printer_task(printer));
     info!("Printer initialized...");
-
-    PrinterWriter::new()
 }
 
 #[embassy_executor::task]
@@ -56,7 +54,7 @@ impl Default for PrinterWriter {
     }
 }
 
-pub struct ThermalPrinterService {
+struct ThermalPrinterService {
     printer: ThermalPrinter,
     printer_rx: PrinterReceiver,
 }
@@ -130,7 +128,7 @@ impl ThermalPrinterService {
     //         .unwrap();
     // }
     //
-    pub async fn run(mut self) {
+    async fn run(mut self) {
         loop {
             let data = self.printer_rx.receive().await;
             info!("Received data: {}", data.as_ref());

@@ -20,15 +20,7 @@ use esp_hal::{
 use esp_hal::{clock::CpuClock, uart::Uart};
 use esp_rtos::embassy::Executor;
 use static_cell::StaticCell;
-use webserver_html::{
-    alloc::format,
-    net::{
-        mqtt::{MQTTService, status_runner},
-        web::WebService,
-    },
-    power::start_power_monitor,
-    prelude::*,
-};
+use webserver_html::prelude::*;
 
 use {esp_alloc as _, esp_backtrace as _, esp_println as _};
 
@@ -46,6 +38,37 @@ async fn main(spawner: Spawner) {
     esp_rtos::start(timg0.timer0);
 
     info!("Embassy initialized!");
+
+    // init second core
+
+    // init power monitor peripherials
+
+    // ADC2 cannot be used with wifi, so I would have to refactor this to be use some external ADC
+    let adc_pin = peripherals.GPIO32;
+    let mut adc_config = AdcConfig::new();
+    let pin = adc_config.enable_pin(adc_pin, Attenuation::_11dB);
+    let adc = Adc::new(peripherals.ADC1, adc_config);
+
+    let power_monitor = PowerMonitorADC::new(pin, adc);
+
+    let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
+    let app_core_stack = APP_CORE_STACK.init(Stack::new());
+    esp_rtos::start_second_core(
+        peripherals.CPU_CTRL,
+        software_interrupt.software_interrupt0,
+        software_interrupt.software_interrupt1,
+        app_core_stack,
+        move || {
+            static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+            let executor = EXECUTOR.init(Executor::new());
+            executor.run(|spawner| {
+                start_power_monitor(power_monitor, &spawner);
+            });
+        },
+    );
+
+    info!("Second core initialized");
 
     // init wifi peripherials
     let radio_init = &*webserver_html::mk_static!(
@@ -80,84 +103,9 @@ async fn main(spawner: Spawner) {
     );
     let printer = ThermalPrinter::new(uart, input);
 
-    let printer_writer = start_printer(printer, &spawner).await;
+    start_printer(printer, &spawner).await;
 
-    // init power monitor
+    start_mqtt_client(mac_address, stack, rng.into(), &spawner);
 
-    // ADC2 cannot be used with wifi, so I would have to refactor this to be use some external ADC
-    let adc_pin = peripherals.GPIO32;
-    let mut adc_config = AdcConfig::new();
-    let pin = adc_config.enable_pin(adc_pin, Attenuation::_11dB);
-    let adc = Adc::new(peripherals.ADC1, adc_config);
-
-    let power_monitor = PowerMonitorADC::new(pin, adc);
-
-    // init second core
-
-    let software_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    static APP_CORE_STACK: StaticCell<Stack<8192>> = StaticCell::new();
-    let app_core_stack = APP_CORE_STACK.init(Stack::new());
-    esp_rtos::start_second_core(
-        peripherals.CPU_CTRL,
-        software_interrupt.software_interrupt0,
-        software_interrupt.software_interrupt1,
-        app_core_stack,
-        move || {
-            static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-            let executor = EXECUTOR.init(Executor::new());
-            executor.run(|spawner| {
-                start_power_monitor(power_monitor, &spawner);
-            });
-        },
-    );
-
-    // TODO refactoring
-
-    let client_id = format!(
-        "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
-        mac_address[0],
-        mac_address[1],
-        mac_address[2],
-        mac_address[3],
-        mac_address[4],
-        mac_address[5]
-    );
-    let mqtt = MQTTService::new(stack, rng.into(), client_id, printer_writer.clone());
-    spawner.must_spawn(mqtt_task(mqtt));
-    info!("MQTT initialized...");
-
-    let web =
-        &*webserver_html::mk_static!(WebService, WebService::new(stack, printer_writer).await);
-    for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(web_task(id, web));
-    }
-    info!("Web Server initialized...");
-
-    spawner.must_spawn(status_task());
-}
-
-// fn second_thread_main(spawner: &Spawner) {
-
-// }
-
-const BUFFER_SIZE: usize = 1024;
-const WEB_TASK_POOL_SIZE: usize = 2;
-#[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
-pub async fn web_task(id: usize, service: &'static WebService) -> ! {
-    let mut rx_buffer = [0u8; BUFFER_SIZE];
-    let mut tx_buffer = [0u8; BUFFER_SIZE];
-    let mut http_buffer = [0u8; BUFFER_SIZE * 2];
-
-    service
-        .run(id, &mut rx_buffer, &mut tx_buffer, &mut http_buffer)
-        .await
-}
-
-#[embassy_executor::task]
-async fn mqtt_task(service: MQTTService) {
-    service.run().await;
-}
-#[embassy_executor::task]
-async fn status_task() {
-    status_runner().await
+    start_web_host(stack, &spawner);
 }

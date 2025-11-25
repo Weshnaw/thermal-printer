@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 use defmt::info;
+use embassy_executor::Spawner;
 use embassy_net::Stack;
 use embassy_time::Duration;
 use picoserve::{
@@ -11,7 +12,29 @@ use picoserve::{
 
 use crate::printer::PrinterWriter;
 
-pub struct WebService {
+const BUFFER_SIZE: usize = 1024;
+const WEB_TASK_POOL_SIZE: usize = 2;
+
+pub fn start_web_host(stack: Stack<'static>, spawner: &Spawner) {
+    let web = &*crate::mk_static!(WebService, WebService::new(stack));
+    for id in 0..WEB_TASK_POOL_SIZE {
+        spawner.must_spawn(web_task(id, web));
+    }
+    info!("Web Server initialized...");
+}
+
+#[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
+async fn web_task(id: usize, service: &'static WebService) -> ! {
+    let mut rx_buffer = [0u8; BUFFER_SIZE];
+    let mut tx_buffer = [0u8; BUFFER_SIZE];
+    let mut http_buffer = [0u8; BUFFER_SIZE * 2];
+
+    service
+        .run(id, &mut rx_buffer, &mut tx_buffer, &mut http_buffer)
+        .await
+}
+
+struct WebService {
     stack: Stack<'static>,
     router: &'static AppRouter<Application>,
     config: &'static picoserve::Config<Duration>,
@@ -19,7 +42,7 @@ pub struct WebService {
 }
 
 impl WebService {
-    pub async fn new(stack: Stack<'static>, printer: PrinterWriter) -> WebService {
+    fn new(stack: Stack<'static>) -> WebService {
         let router = picoserve::make_static!(AppRouter<Application>, Application.build_app());
         let config = picoserve::make_static!(
             picoserve::Config<Duration>,
@@ -36,11 +59,13 @@ impl WebService {
             stack,
             router,
             config,
-            state: AppState { printer },
+            state: AppState {
+                printer: PrinterWriter::new(),
+            },
         }
     }
 
-    pub async fn run(
+    async fn run(
         &self,
         id: usize,
         rx_buffer: &mut [u8],

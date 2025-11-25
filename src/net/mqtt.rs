@@ -1,5 +1,6 @@
 use alloc::{format, string::String};
 use defmt::{debug, error, info};
+use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::{IpAddress, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -21,8 +22,33 @@ use crate::{
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
 
+pub fn start_mqtt_client(mac_address: [u8; 6], stack: Stack<'static>, rng: Rng, spawner: &Spawner) {
+    let client_id = format!(
+        "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+        mac_address[0],
+        mac_address[1],
+        mac_address[2],
+        mac_address[3],
+        mac_address[4],
+        mac_address[5]
+    );
+    let mqtt = MQTTService::new(stack, rng, client_id);
+    spawner.must_spawn(mqtt_task(mqtt));
+    spawner.must_spawn(status_task());
+    info!("MQTT initialized...");
+}
+
+#[embassy_executor::task]
+async fn mqtt_task(service: MQTTService) {
+    service.run().await;
+}
+#[embassy_executor::task]
+async fn status_task() {
+    status_runner().await
+}
+
 #[derive(Clone, Copy, Debug)]
-pub enum StatusState {
+enum StatusState {
     Up,
     ShuttingDown,
     RegainedPower,
@@ -38,7 +64,7 @@ struct Status {
 
 static STATUS_SIGNAL: Signal<CriticalSectionRawMutex, Status> = Signal::new();
 
-pub async fn status_runner() {
+async fn status_runner() {
     let mut shutdown_recv = match SHUTDOWN_WATCHER.receiver() {
         Some(recv) => recv,
         None => {
@@ -83,7 +109,7 @@ pub async fn status_runner() {
     }
 }
 
-pub struct MQTTService {
+struct MQTTService {
     stack: Stack<'static>,
     rng: Rng,
     client_id: String,
@@ -91,16 +117,16 @@ pub struct MQTTService {
 }
 
 impl MQTTService {
-    pub fn new(stack: Stack<'static>, rng: Rng, client_id: String, printer: PrinterWriter) -> Self {
+    fn new(stack: Stack<'static>, rng: Rng, client_id: String) -> Self {
         MQTTService {
             stack,
             rng,
             client_id,
-            printer,
+            printer: PrinterWriter::new(),
         }
     }
 
-    pub async fn run(&self) {
+    async fn run(&self) {
         mqtt_runner(self.stack, self.rng, &self.client_id, &self.printer).await;
     }
 }

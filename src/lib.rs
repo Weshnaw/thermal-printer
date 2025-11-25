@@ -3,11 +3,17 @@
 
 pub extern crate alloc;
 
-mod glue;
-pub mod net;
-pub mod power;
+pub mod glue;
+mod net;
+mod power;
+mod printer;
+
 pub mod prelude;
-pub mod printer;
+pub use crate::net::mqtt::start_mqtt_client;
+pub use crate::net::web::start_web_host;
+pub use crate::net::wifi::start_wifi;
+pub use crate::power::start_power_monitor;
+pub use crate::printer::start_printer;
 
 #[macro_export]
 macro_rules! mk_static {
