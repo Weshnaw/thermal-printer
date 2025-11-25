@@ -6,7 +6,7 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use defmt::info;
+use defmt::{error, info};
 use embassy_executor::Spawner;
 use esp_hal::{
     analog::adc::{Adc, AdcConfig, Attenuation},
@@ -90,11 +90,17 @@ async fn main(spawner: Spawner) {
         .with_stop_bits(esp_hal::uart::StopBits::_1);
     // .with_rx(RxConfig::default().with_fifo_full_threshold(1024));
 
-    let mut uart = Uart::new(peripherals.UART2, config)
-        .unwrap()
-        .with_rx(peripherals.GPIO17)
-        .with_tx(peripherals.GPIO16)
-        .into_async();
+    let mut uart = match Uart::new(peripherals.UART2, config) {
+        Ok(uart) => uart
+            .with_rx(peripherals.GPIO17)
+            .with_tx(peripherals.GPIO16)
+            .into_async(),
+        Err(e) => {
+            error!("Failed to initialize printer uart: {:?}", e);
+            panic!("Failed to initialize printer uart: {:?}", e)
+        }
+    };
+
     uart.set_at_cmd(AtCmdConfig::default().with_cmd_char(0x04));
 
     let input = Input::new(

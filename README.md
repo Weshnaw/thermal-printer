@@ -21,3 +21,4 @@ TODO:
   - such as the IP address of mqtt
 - update which mqtt crate used to have async as first class
 - a method to calibrate power status ADC automatically
+- add some way to allow start up in a degraded form / attempt a retry instead of panicing for some errors
