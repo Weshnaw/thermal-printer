@@ -1,10 +1,10 @@
 use alloc::{format, string::String};
 use defmt::{debug, error, info};
-use embassy_futures::select::select;
+use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_net::{IpAddress, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::{Duration, Timer};
-use esp_hal::rng::Rng;
+use embassy_time::{Duration, Ticker, Timer};
 use rust_mqtt::{
     client::{
         client,
@@ -13,83 +13,125 @@ use rust_mqtt::{
     packet::v5::publish_packet::QualityOfService,
 };
 
-use crate::{printer::ThermalPrinter, shutdown::SHUTDOWN_WATCHER};
+use crate::{
+    glue::Rng,
+    power::{POWER_MONITOR_WATCHER, PowerMonitorData, SHUTDOWN_WATCHER, ShutdownStatus},
+    printer::PrinterWriter,
+};
 
 const MQTT_USER: &str = env!("MQTT_USER");
 const MQTT_PASSWORD: &str = env!("MQTT_PASSWORD");
 
-#[derive(Clone, Copy)]
-pub enum Status {
+pub fn start_mqtt_client(mac_address: [u8; 6], stack: Stack<'static>, rng: Rng, spawner: &Spawner) {
+    let client_id = format!(
+        "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+        mac_address[0],
+        mac_address[1],
+        mac_address[2],
+        mac_address[3],
+        mac_address[4],
+        mac_address[5]
+    );
+    let mqtt = MQTTService::new(stack, rng, client_id);
+    spawner.must_spawn(mqtt_task(mqtt));
+    spawner.must_spawn(status_task());
+    info!("MQTT initialized...");
+}
+
+#[embassy_executor::task]
+async fn mqtt_task(service: MQTTService) {
+    service.run().await;
+}
+#[embassy_executor::task]
+async fn status_task() {
+    status_runner().await
+}
+
+#[derive(Clone, Copy, Debug)]
+enum StatusState {
     Up,
     ShuttingDown,
+    RegainedPower,
     Down,
 }
 
-impl Status {
-    fn as_bytes(&self) -> &[u8] {
-        match &self {
-            Status::Up => "up".as_bytes(),
-            Status::Down => "down".as_bytes(),
-            Status::ShuttingDown => "shutting down".as_bytes(),
-        }
-    }
+#[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // for now I'm just using this a a capsul in order to print the debug state of the struct to mqtt
+struct Status {
+    state: StatusState,
+    power_level: PowerMonitorData,
 }
 
 static STATUS_SIGNAL: Signal<CriticalSectionRawMutex, Status> = Signal::new();
 
-pub async fn status_runner() {
+async fn status_runner() {
     let mut shutdown_recv = match SHUTDOWN_WATCHER.receiver() {
         Some(recv) => recv,
         None => {
             panic!("Failed to retrieve shutdown recv")
         }
     };
+    let mut power_recv = match POWER_MONITOR_WATCHER.receiver() {
+        Some(recv) => recv,
+        None => {
+            panic!("Failed to retrieve power monitor recv")
+        }
+    };
 
-    let mut current_status = Status::Up;
+    let mut ticker = Ticker::every(Duration::from_secs(5));
 
+    let mut state = StatusState::Up;
     loop {
-        STATUS_SIGNAL.signal(current_status);
-        if select(
-            Timer::after(Duration::from_secs(10)),
-            shutdown_recv.changed(),
-        )
-        .await
-        .is_second()
-        {
-            STATUS_SIGNAL.signal(Status::ShuttingDown);
-            current_status = Status::Down;
+        match select(ticker.next(), shutdown_recv.changed()).await {
+            Either::First(_) => {
+                let power_level = power_recv.get().await;
+                STATUS_SIGNAL.signal(Status { state, power_level });
+            }
+            Either::Second(shutdown_status) => match shutdown_status {
+                ShutdownStatus::LowPower => {
+                    state = StatusState::Down;
+                    let power_level = power_recv.get().await;
+                    STATUS_SIGNAL.signal(Status {
+                        state: StatusState::ShuttingDown,
+                        power_level,
+                    });
+                }
+                ShutdownStatus::NormalPower => {
+                    state = StatusState::Up;
+                    let power_level = power_recv.get().await;
+                    STATUS_SIGNAL.signal(Status {
+                        state: StatusState::RegainedPower,
+                        power_level,
+                    });
+                }
+            },
         }
     }
 }
 
-pub struct MQTTService {
+struct MQTTService {
     stack: Stack<'static>,
     rng: Rng,
     client_id: String,
-    printer: ThermalPrinter,
+    printer: PrinterWriter,
 }
 
 impl MQTTService {
-    pub fn new(
-        stack: Stack<'static>,
-        rng: Rng,
-        client_id: String,
-        printer: ThermalPrinter,
-    ) -> Self {
+    fn new(stack: Stack<'static>, rng: Rng, client_id: String) -> Self {
         MQTTService {
             stack,
             rng,
             client_id,
-            printer,
+            printer: PrinterWriter::new(),
         }
     }
 
-    pub async fn run(&self) {
+    async fn run(&self) {
         mqtt_runner(self.stack, self.rng, &self.client_id, &self.printer).await;
     }
 }
 
-async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: &ThermalPrinter) {
+async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: &PrinterWriter) {
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 1024];
     let mut recv_buffer = [0; 1024];
@@ -112,7 +154,6 @@ async fn mqtt_runner(stack: Stack<'static>, rng: Rng, client_id: &str, printer: 
             }
         };
 
-        // TODO; I would prefere to have two loops here one for receiving and one for sending
         info!("Starting mqtt loop");
         let client_queue = format!("embedded/scribe/client/{client_id}");
         loop {
@@ -150,7 +191,7 @@ async fn handle_status<'a>(
     if send_message(
         client,
         topic,
-        status.as_bytes(),
+        format!("{status:?}").as_bytes(),
         QualityOfService::QoS0,
         false,
     )
@@ -163,7 +204,7 @@ async fn handle_status<'a>(
     }
 }
 
-async fn handle_recieve(printer: &ThermalPrinter, topic: &str, payload: &[u8]) {
+async fn handle_recieve(printer: &PrinterWriter, topic: &str, payload: &[u8]) {
     let message = str::from_utf8(payload).unwrap_or("utf8 decode err");
     info!("Received message: {} - {}", topic, message);
 
@@ -184,7 +225,7 @@ async fn init_mqtt_client<'a>(
     info!("initializing mqtt client");
     let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(30)));
-    let ip = IpAddress::v4(192, 168, 1, 33); // TODO; make configurable
+    let ip = IpAddress::v4(192, 168, 1, 33);
 
     loop {
         match socket.connect((ip, 1883)).await {
@@ -278,6 +319,3 @@ async fn send_message<'a>(
         }
     }
 }
-
-// TODO:
-//  - handle configuration messages

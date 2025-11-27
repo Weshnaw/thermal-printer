@@ -15,5 +15,10 @@ Inspiration:
 
 TODO:
 - I would like to implement some unit testing apparatus
-- refactor the code to be more readable
-- make the distinction between thread 1 and thread 2 more clear / obvious
+- Update glue abstraction to do all peripheral initialization logic
+- refactor the multi-core to be more clear and concise 
+- setup a configuration that can be changed dynamically via mqtt
+  - such as the IP address of mqtt
+- update which mqtt crate used to have async as first class
+- a method to calibrate power status ADC automatically
+- add some way to allow start up in a degraded form / attempt a retry instead of panicing for some errors
