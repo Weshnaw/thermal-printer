@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::Stack;
@@ -10,7 +9,7 @@ use picoserve::{
     routing,
 };
 
-use crate::printer::PrinterWriter;
+use crate::printer::{DATA_SIZE, PrinterWriter};
 
 const BUFFER_SIZE: usize = 1024;
 const WEB_TASK_POOL_SIZE: usize = 2;
@@ -107,14 +106,14 @@ struct AppState {
 
 #[derive(serde::Deserialize)]
 struct SubmitData {
-    message: Arc<str>,
+    message: heapless::String<DATA_SIZE>,
 }
 
 async fn post_handler(
     State(state): picoserve::extract::State<AppState>,
     data: picoserve::extract::Form<SubmitData>,
 ) -> impl IntoResponse {
-    info!("Received message: {}", data.message.as_ref());
+    info!("Received message: {}", data.message);
 
     state.printer.print(data.message.clone()).await;
 }

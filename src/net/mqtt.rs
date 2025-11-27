@@ -205,10 +205,10 @@ async fn handle_status<'a>(
 }
 
 async fn handle_recieve(printer: &PrinterWriter, topic: &str, payload: &[u8]) {
-    let message = str::from_utf8(payload).unwrap_or("utf8 decode err");
-    info!("Received message: {} - {}", topic, message);
+    let payload = str::from_utf8(payload).unwrap_or("utf8 decode err");
+    info!("Received message: {} - {}", topic, payload);
 
-    printer.print(message.into()).await;
+    printer.chunk_print(payload).await;
 }
 
 type MqttClient<'a> = client::MqttClient<'a, TcpSocket<'a>, 5, Rng>;
