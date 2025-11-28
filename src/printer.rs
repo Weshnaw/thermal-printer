@@ -87,7 +87,7 @@ impl ThermalPrinterService {
         }
     }
     async fn print(&mut self, text: &[u8]) {
-        info!("creating lines: {}", text);
+        debug!("creating lines: {}", text);
 
         let mut lines = Vec::new();
 

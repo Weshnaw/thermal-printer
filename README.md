@@ -13,6 +13,9 @@ Tested with Thermal Printer Model:
 Inspiration:
 - [scribe](https://github.com/UrbanCircles/scribe/tree/main)
 
+Critical TODO:
+- on regain power; reset the printer
+
 TODO:
 - I would like to implement some unit testing apparatus
 - Update glue abstraction to do all peripheral initialization logic
