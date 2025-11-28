@@ -74,6 +74,7 @@ serde = { version = "1.0", default-features = false, features = [
 nb = "1.1.0"
 rust-mqtt = { version = "0.3", default-features = false, features = ["no_std"] }
 rand_core = "0.6.4" # out of date for compatibility reasons with esp-hal and rust-mqtt
+heapless = { version = "0.9.2", features = ["alloc", "defmt", "nightly", "serde"] }
 
 
 [profile.dev]

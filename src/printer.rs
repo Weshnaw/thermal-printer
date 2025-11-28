@@ -1,5 +1,7 @@
-use alloc::{sync::Arc, vec::Vec};
-use defmt::{debug, info};
+use core::str::FromStr as _;
+
+use alloc::vec::Vec;
+use defmt::{debug, info, warn};
 use embassy_executor::Spawner;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
@@ -9,7 +11,8 @@ use embassy_sync::{
 use crate::glue::ThermalPrinter;
 
 const CHANNEL_SIZE: usize = 8;
-type MessageData = Arc<str>;
+pub const DATA_SIZE: usize = 2048;
+pub type MessageData = heapless::String<DATA_SIZE>;
 type PrinterChannel = Channel<CriticalSectionRawMutex, MessageData, CHANNEL_SIZE>;
 type PrinterSender = Sender<'static, CriticalSectionRawMutex, MessageData, CHANNEL_SIZE>;
 type PrinterReceiver = Receiver<'static, CriticalSectionRawMutex, MessageData, CHANNEL_SIZE>;
@@ -41,8 +44,19 @@ impl PrinterWriter {
         PrinterWriter { printer_tx }
     }
 
+    pub async fn chunk_print(&self, payload: &str) {
+        let mut offset: usize = 0;
+        while offset < payload.len() {
+            let page = (DATA_SIZE + offset).min(payload.len());
+            let slice = &payload[offset..page];
+            let message: MessageData = heapless::String::from_str(slice).unwrap();
+            self.print(message).await;
+            offset = page;
+        }
+    }
+
     pub async fn print(&self, buf: MessageData) {
-        info!("Sending data: {}", buf.as_ref());
+        info!("Sending data: {}", buf);
         self.printer_tx.send(buf).await;
         info!("Data sent");
     }
@@ -72,12 +86,19 @@ impl ThermalPrinterService {
             printer_rx,
         }
     }
-    async fn print(&mut self, text: &str) {
-        info!("creating lines: {}", text);
+    async fn print(&mut self, text: &[u8]) {
+        debug!("creating lines: {}", text);
 
         let mut lines = Vec::new();
 
         // First, split by explicit newlines
+        let text = match str::from_utf8(text.strip_suffix(&[0xD]).unwrap_or(text)) {
+            Ok(v) => v,
+            Err(_) => {
+                warn!("Failed to decode utf8 to str");
+                return;
+            }
+        };
         for raw_line in text.lines() {
             let mut remaining = raw_line.trim();
 
@@ -130,9 +151,9 @@ impl ThermalPrinterService {
     //
     async fn run(mut self) {
         loop {
-            let data = self.printer_rx.receive().await;
-            info!("Received data: {}", data.as_ref());
-            self.print(&data).await;
+            let data: MessageData = self.printer_rx.receive().await;
+            info!("Received data: {}", data);
+            self.print(data.as_bytes()).await;
         }
     }
 }
